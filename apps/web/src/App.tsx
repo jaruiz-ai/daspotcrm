@@ -24,15 +24,17 @@ function useLoad<T>(fn: () => Promise<T>, deps: unknown[]) {
   return { data, error, reload, setData };
 }
 
-/** Darkness of a film shade: 70% VLT lets 70% of light through, so 30% dark. */
-const shadeStyle = (vlt: number, part: 'head' | 'body') => {
-  const dark = 1 - vlt / 100;
-  const a = part === 'head' ? dark : dark * 0.28;
-  return {
-    background: `rgba(28, 35, 38, ${a.toFixed(2)})`,
-    color: part === 'head' && dark > 0.45 ? '#eef3f4' : '#1c2326',
-  };
+/** Bar darkness for a stage: 70% film lets 70% of light through, so it is 30% dark. */
+const shadeOpacity = (vlt: number) => (0.12 + (1 - vlt / 100) * 0.88).toFixed(2);
+
+const when = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+const SOURCE_LABEL: Record<string, string> = {
+  sms: 'Text', text: 'Text', whatsapp: 'WhatsApp', instagram: 'Instagram', tiktok: 'TikTok', website: 'Website',
+  'walk-in': 'Walk-in', referral: 'Referral', funnel: 'Funnel', dealer: 'Dealer', warranty: 'Warranty',
 };
+const sourceLabel = (s?: string | null) => (s ? SOURCE_LABEL[s] ?? s : null);
 
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
@@ -46,16 +48,17 @@ export default function App() {
   else if (route === '/warranty') page = <WarrantyLookup />;
   else page = <Board />;
 
-  const nav = [['#/', 'Board'], ['#/new', 'New lead'], ['#/warranty', 'Warranty lookup']];
+  const nav = [['#/', 'Pipeline'], ['#/warranty', 'Warranties']];
+  const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/jobs') : `#${route}` === href);
   return (
     <>
       <header className="topbar">
-        <div className="brand">Da Spot 214 <span>CRM</span></div>
+        <div className="brand">Da Spot 214<span>CRM</span></div>
         <nav className="nav" aria-label="Main">
-          {nav.map(([href, label]) => (
-            <a key={href} href={href} aria-current={(`#${route}` === href || (href === '#/' && route.startsWith('/jobs'))) ? 'page' : undefined}>{label}</a>
-          ))}
+          {nav.map(([href, label]) => <a key={href} href={href} aria-current={active(href) ? 'page' : undefined}>{label}</a>)}
         </nav>
+        <span className="spacer" />
+        <a className="btn new-btn" href="#/new">New lead</a>
       </header>
       <main>{page}</main>
     </>
@@ -79,13 +82,16 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="login panel">
       <form className="form" onSubmit={submit}>
-        <h1>Da Spot 214 CRM</h1>
+        <div>
+          <h1>Da Spot 214</h1>
+          <p className="muted" style={{ margin: 0 }}>Sign in to the shop CRM.</p>
+        </div>
         <label>Shop access code
-          <input type="password" value={token} onChange={(e) => setT(e.target.value)} autoFocus required />
+          <input id="access-code" type="password" value={token} onChange={(e) => setT(e.target.value)} autoFocus required />
         </label>
         {error && <div className="error" role="alert">{error}</div>}
         <button className="btn" type="submit">Sign in</button>
-        <p className="muted small">Running the demo locally? The code is <code>dev-token</code>.</p>
+        <p className="faint small" style={{ margin: 0 }}>Running the demo locally? The code is dev-token.</p>
       </form>
     </div>
   );
@@ -95,44 +101,56 @@ function Login({ onDone }: { onDone: () => void }) {
 function Board() {
   const { data, error } = useLoad(() => api<Record<string, any[]>>('/pipeline'), []);
   const open = data ? STAGES.slice(0, 5).reduce((n, s) => n + (data[s.key]?.length ?? 0), 0) : 0;
+  const openValue = data ? STAGES.slice(0, 5).reduce((n, s) => n + (data[s.key] ?? []).reduce((m, j) => m + (j.subtotal_cents || 0), 0), 0) : 0;
   return (
     <>
       <div className="page-head">
-        <h1>Pipeline</h1>
-        <div className="actions">
-          {data && <span className="muted">{open} open {open === 1 ? 'job' : 'jobs'}</span>}
-          <a className="btn" href="#/new">New lead</a>
+        <div>
+          <h1>Pipeline</h1>
+          {data && <p className="muted">{open} open {open === 1 ? 'job' : 'jobs'}{openValue ? `, ${money(openValue)} quoted before tax` : ''}</p>}
         </div>
+        <a className="btn secondary" href="#/new">New lead</a>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {!data && !error && <p className="muted">Loading the board…</p>}
       {data && (
         <div className="board">
-          {STAGES.map((s) => (
-            <section key={s.key} className="col" aria-label={s.label}>
-              <div className="col-head" style={shadeStyle(s.shade, 'head')}>
-                <span>{s.label} <span className="shade">({data[s.key]?.length ?? 0})</span></span>
-                <span className="shade">{s.shade}%</span>
-              </div>
-              <div className="col-body" style={shadeStyle(s.shade, 'body')}>
-                {(data[s.key] ?? []).length === 0 && <div className="empty-col">Nothing here</div>}
-                {(data[s.key] ?? []).map((j) => (
-                  <a key={j.id} className="card" href={`#/jobs/${j.id}`}>
-                    <div className="row"><span>#{j.number}</span>{j.stale && <span className="flag">Quote waiting 3+ days</span>}</div>
-                    <div className="who">{personName(j)}</div>
-                    <div className="row"><span>{vehicleName(j) || 'No vehicle yet'}</span><span>{j.subtotal_cents ? money(j.subtotal_cents) : ''}</span></div>
-                    {j.next_appointment && (
-                      <div className="row"><span>{new Date(j.next_appointment).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span></div>
-                    )}
-                    {j.lead_source && <div className="row"><span>via {j.lead_source}</span>{j.language === 'es' && <span>Español</span>}</div>}
-                  </a>
-                ))}
-              </div>
-            </section>
-          ))}
+          {STAGES.map((s) => {
+            const jobs = data[s.key] ?? [];
+            return (
+              <section key={s.key} className="col" aria-label={s.label}>
+                <div className="col-head">
+                  <div className="shade-bar" style={{ opacity: shadeOpacity(s.shade) }} title={`${s.shade}% shade`} />
+                  <div className="col-title"><h2>{s.label}</h2><span className="count">{jobs.length}</span></div>
+                </div>
+                <div className="col-body">
+                  {jobs.length === 0 && <div className="empty-col">No jobs</div>}
+                  {jobs.map((j) => <JobCard key={j.id} j={j} />)}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
     </>
+  );
+}
+
+function JobCard({ j }: { j: any }) {
+  const tags: ReactNode[] = [];
+  if (j.stale) tags.push(<span key="stale" className="pill warn">No reply 3+ days</span>);
+  if (j.language === 'es') tags.push(<span key="es" className="pill">Español</span>);
+  const src = sourceLabel(j.lead_source);
+  return (
+    <a className="card" href={`#/jobs/${j.id}`}>
+      <div className="card-top"><span className="who">{personName(j)}</span><span className="num">#{j.number}</span></div>
+      <div className="vehicle">{vehicleName(j) || 'Vehicle not added'}</div>
+      {tags.length > 0 && <div className="card-tags">{tags}</div>}
+      <div className="card-meta">
+        <span>{j.next_appointment ? when(j.next_appointment) : src}</span>
+        {j.subtotal_cents > 0 && <span className="price">{money(j.subtotal_cents)}</span>}
+      </div>
+    </a>
   );
 }
 
@@ -162,40 +180,50 @@ function QuickLead() {
   };
 
   return (
-    <>
-      <div className="page-head"><h1>New lead</h1></div>
-      <form className="panel form" onSubmit={submit}>
-        <fieldset>
-          <legend>Customer</legend>
+    <div style={{ maxWidth: 720 }}>
+      <div className="page-head">
+        <div>
+          <p className="crumb"><a href="#/">Pipeline</a></p>
+          <h1>New lead</h1>
+        </div>
+      </div>
+      <form className="panel" onSubmit={submit}>
+        <div className="panel-body form">
+          <fieldset>
+            <legend>Customer</legend>
+            <div className="fields">
+              <label>Mobile<input id="lead-mobile" value={f.mobile} onChange={set('mobile')} inputMode="tel" autoComplete="off" required placeholder="(214) 555-0123" /></label>
+              <label>First name<input id="lead-first" value={f.first_name} onChange={set('first_name')} /></label>
+              <label>Last name<input id="lead-last" value={f.last_name} onChange={set('last_name')} /></label>
+              <label>Language
+                <select id="lead-lang" value={f.language} onChange={set('language')}><option value="en">English</option><option value="es">Español</option></select>
+              </label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Vehicle</legend>
+            <div className="fields">
+              <label>Year<input id="lead-year" value={f.year} onChange={set('year')} inputMode="numeric" pattern="(19|20)\d{2}" placeholder="2024" /></label>
+              <label>Make<input id="lead-make" value={f.make} onChange={set('make')} placeholder="Toyota" /></label>
+              <label>Model<input id="lead-model" value={f.model} onChange={set('model')} placeholder="Camry" /></label>
+            </div>
+          </fieldset>
           <div className="fields">
-            <label>Mobile<input value={f.mobile} onChange={set('mobile')} inputMode="tel" autoComplete="off" required placeholder="(214) 555-0123" /></label>
-            <label>First name<input value={f.first_name} onChange={set('first_name')} /></label>
-            <label>Last name<input value={f.last_name} onChange={set('last_name')} /></label>
-            <label>Language
-              <select value={f.language} onChange={set('language')}><option value="en">English</option><option value="es">Español</option></select>
+            <label>How they found us
+              <select id="lead-source" value={f.lead_source} onChange={set('lead_source')}>
+                {['text', 'instagram', 'tiktok', 'website', 'walk-in', 'referral', 'funnel', 'dealer'].map((s) => <option key={s} value={s}>{sourceLabel(s)}</option>)}
+              </select>
             </label>
           </div>
-        </fieldset>
-        <fieldset>
-          <legend>Vehicle</legend>
-          <div className="fields">
-            <label>Year<input value={f.year} onChange={set('year')} inputMode="numeric" pattern="(19|20)\d{2}" placeholder="2024" /></label>
-            <label>Make<input value={f.make} onChange={set('make')} placeholder="Toyota" /></label>
-            <label>Model<input value={f.model} onChange={set('model')} placeholder="Camry" /></label>
-          </div>
-        </fieldset>
-        <div className="fields">
-          <label>How they found us
-            <select value={f.lead_source} onChange={set('lead_source')}>
-              {['text', 'instagram', 'tiktok', 'website', 'walk-in', 'referral', 'funnel', 'dealer'].map((s) => <option key={s}>{s}</option>)}
-            </select>
-          </label>
+          <label>Note<textarea id="lead-note" rows={3} value={f.note} onChange={set('note')} placeholder="Wants 20% all around, asked about ceramic" /></label>
+          {error && <div className="error" role="alert">{error}</div>}
         </div>
-        <label>Note<textarea rows={3} value={f.note} onChange={set('note')} placeholder="Wants 20% all around, asked about ceramic" /></label>
-        {error && <div className="error" role="alert">{error}</div>}
-        <div className="actions"><button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Create lead'}</button></div>
+        <div className="panel-foot actions" style={{ justifyContent: 'flex-end' }}>
+          <a className="btn ghost" href="#/">Cancel</a>
+          <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Create lead'}</button>
+        </div>
       </form>
-    </>
+    </div>
   );
 }
 
@@ -209,6 +237,13 @@ const NEXT: Record<string, { to: string; label: string }[]> = {
   lost: [{ to: 'new_lead', label: 'Reopen lead' }],
   paid: [],
 };
+
+function StagePill({ stage, lostReason }: { stage: string; lostReason?: string | null }) {
+  if (stage === 'lost') return <span className="pill bad"><span className="dot" />Lost{lostReason ? `: ${lostReason.replace('_', ' ')}` : ''}</span>;
+  if (stage === 'paid') return <span className="pill good"><span className="dot" />Paid</span>;
+  const s = STAGES.find((x) => x.key === stage);
+  return <span className="pill accent"><span className="dot" />{s?.label ?? stage}</span>;
+}
 
 function JobPage({ id }: { id: string }) {
   const { data: job, error, setData } = useLoad(() => api(`/jobs/${id}`), [id]);
@@ -233,43 +268,64 @@ function JobPage({ id }: { id: string }) {
 
   if (error) return <div className="error" role="alert">{error}</div>;
   if (!job) return <p className="muted">Loading job…</p>;
-  const stage = STAGES.find((s) => s.key === job.stage);
   const locked = job.stage === 'paid' || job.stage === 'lost';
+  const stageIndex = STAGES.findIndex((x) => x.key === job.stage);
+  const [primary, ...secondary] = NEXT[job.stage] ?? [];
+  const canLose = !locked && !['in_bay', 'completed'].includes(job.stage);
+  const vehicle = vehicleName(job) || job.property_address;
+  const src = sourceLabel(job.lead_source);
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="muted small"><a href="#/">Pipeline</a> / Job #{job.number}</p>
-          <h1>{personName(job)} · {vehicleName(job) || job.property_address || 'No vehicle yet'}</h1>
-          <p className="muted">
-            <a href={`sms:${job.mobile}`}>{formatPhone(job.mobile)}</a>
-            {job.language === 'es' ? ' · Español' : ''}{job.lead_source ? ` · via ${job.lead_source}` : ''}
-            {job.is_warranty_redo ? ' · Warranty re-do, no charge' : ''}
-          </p>
-          <div className="meter" aria-label={`Stage: ${stage?.label ?? 'Lost'}`}>
-            {STAGES.map((s) => (
-              <span key={s.key} title={s.label} style={{ background: STAGES.indexOf(s) <= STAGES.findIndex((x) => x.key === job.stage)
-                ? `rgba(28,35,38,${(1 - s.shade / 100).toFixed(2)})` : 'var(--rule)' }} />
-            ))}
+      <div className="job-head">
+        <p className="crumb"><a href="#/">Pipeline</a> / Job #{job.number}</p>
+        <div className="job-title">
+          <div>
+            <div className="actions" style={{ gap: 12 }}>
+              <h1>{personName(job)}</h1>
+              <StagePill stage={job.stage} lostReason={job.lost_reason} />
+            </div>
+            <div className="sub">
+              <span>{vehicle || 'Vehicle not added'}</span>
+              <a href={`sms:${job.mobile}`}>{formatPhone(job.mobile)}</a>
+              {job.language === 'es' && <span>Español</span>}
+              {src && <span>From {src}</span>}
+              {job.is_warranty_redo && <span>Warranty re-do, no charge</span>}
+            </div>
+          </div>
+          <div className="actions">
+            {(secondary.length > 0 || canLose) && (
+              <details className="more">
+                <summary className="btn secondary">More</summary>
+                <div className="more-menu">
+                  {secondary.map((n) => (
+                    <button key={n.to} className="btn secondary" disabled={busy} onClick={() => run(`/jobs/${id}/stage`, { to: n.to })}>{n.label}</button>
+                  ))}
+                  {canLose && <LoseForm disabled={busy} onLose={(reason) => run(`/jobs/${id}/stage`, { to: 'lost', lost_reason: reason })} />}
+                </div>
+              </details>
+            )}
+            {primary && <button className="btn" disabled={busy} onClick={() => run(`/jobs/${id}/stage`, { to: primary.to })}>{primary.label}</button>}
           </div>
         </div>
-        <div className="actions">
-          <strong style={{ alignSelf: 'center' }}>{stage?.label ?? `Lost (${job.lost_reason?.replace('_', ' ')})`}</strong>
-          {(NEXT[job.stage] ?? []).map((n) => (
-            <button key={n.to} className={n.to === NEXT[job.stage][0].to ? 'btn' : 'btn quiet'} disabled={busy}
-              onClick={() => run(`/jobs/${id}/stage`, { to: n.to })}>{n.label}</button>
-          ))}
-          {!locked && job.stage !== 'completed' && job.stage !== 'in_bay' && (
-            <LoseButton disabled={busy} onLose={(reason) => run(`/jobs/${id}/stage`, { to: 'lost', lost_reason: reason })} />
-          )}
-        </div>
+        {job.stage !== 'lost' && (
+          <div aria-label={`Stage ${stageIndex + 1} of ${STAGES.length}`}>
+            <div className="stepper">
+              {STAGES.map((s, i) => (
+                <span key={s.key} style={i <= stageIndex ? { background: 'var(--ink)', opacity: shadeOpacity(s.shade) } : undefined} />
+              ))}
+            </div>
+            <div className="stepper-labels" aria-hidden="true">
+              {STAGES.map((s, i) => <span key={s.key} className={i === stageIndex ? 'on' : undefined}>{s.label}</span>)}
+            </div>
+          </div>
+        )}
       </div>
 
-      {actionError && <div className="error" role="alert" style={{ marginBottom: 16 }}>{actionError}</div>}
+      {actionError && <div className="error" role="alert" style={{ marginBottom: 20 }}>{actionError}</div>}
       {job.waiver_required && !job.waiver_signed_at && !locked && (
-        <div className="notice" style={{ marginBottom: 16 }}>
-          <strong>Front side shade is below the Texas 25% limit.</strong> The customer must sign the acknowledgment before this job can be completed.
+        <div className="notice" style={{ marginBottom: 20 }}>
+          <div><strong>Front side shade is below the Texas 25% limit.</strong> The customer must sign the acknowledgment before this job can be completed.</div>
           <WaiverForm disabled={busy} onSign={(name) => run(`/jobs/${id}/waiver`, { signed_name: name })} />
         </div>
       )}
@@ -277,75 +333,108 @@ function JobPage({ id }: { id: string }) {
       <div className="job-grid">
         <div className="stack">
           <section className="panel">
-            <h2>Services</h2>
-            <table>
-              <thead><tr><th>Service</th><th>Film</th><th>Shade</th><th className="num">Price</th><th></th></tr></thead>
-              <tbody>
-                {job.line_items.length === 0 && <tr><td colSpan={5} className="muted">Add the services you're quoting.</td></tr>}
-                {job.line_items.map((li: any) => (
-                  <tr key={li.id}>
-                    <td>{SERVICES[li.service] ?? li.service}{li.qty > 1 ? ` × ${li.qty}` : ''}{li.description ? <div className="muted small">{li.description}</div> : null}</td>
-                    <td>{li.film_line ?? '—'}</td>
-                    <td>{li.shade_vlt ? `${li.shade_vlt}%` : '—'}</td>
-                    <td className="num">{money(li.qty * li.unit_price_cents)}</td>
-                    <td className="num">{!locked && <button className="btn quiet" disabled={busy} aria-label={`Remove ${SERVICES[li.service]}`}
-                      onClick={() => run(`/jobs/${id}/line-items/${li.id}`, undefined, 'DELETE')}>Remove</button>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!locked && <LineItemForm films={films ?? []} disabled={busy} onAdd={(b) => run(`/jobs/${id}/line-items`, b)} />}
+            <div className="panel-head"><h2>Services</h2></div>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Service</th><th>Film</th><th>Shade</th><th className="num">Price</th>{!locked && <th><span className="faint" style={{ position: 'absolute', left: -9999 }}>Actions</span></th>}</tr></thead>
+                <tbody>
+                  {job.line_items.length === 0 && <tr><td colSpan={5} className="empty">No services yet. Add what you're quoting below.</td></tr>}
+                  {job.line_items.map((li: any) => (
+                    <tr key={li.id}>
+                      <td>{SERVICES[li.service] ?? li.service}{li.qty > 1 ? ` × ${li.qty}` : ''}{li.description ? <div className="faint small">{li.description}</div> : null}</td>
+                      <td>{li.film_line ?? <span className="faint">None</span>}</td>
+                      <td>{li.shade_vlt ? `${li.shade_vlt}%` : <span className="faint">None</span>}</td>
+                      <td className="num">{money(li.qty * li.unit_price_cents)}</td>
+                      {!locked && <td className="num"><button className="btn ghost sm" disabled={busy} aria-label={`Remove ${SERVICES[li.service]}`}
+                        onClick={() => run(`/jobs/${id}/line-items/${li.id}`, undefined, 'DELETE')}>Remove</button></td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!locked && <div className="panel-foot"><LineItemForm films={films ?? []} disabled={busy} onAdd={(b) => run(`/jobs/${id}/line-items`, b)} /></div>}
           </section>
 
           {!locked && (
             <section className="panel">
-              <h2>Appointment</h2>
-              {job.appointments.filter((a: any) => a.status !== 'cancelled').map((a: any) => (
-                <p key={a.id}>
-                  {new Date(a.starts_at).toLocaleString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                  {' – '}{new Date(a.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · Bay {a.bay}{' '}
-                  {['scheduled', 'confirmed'].includes(a.status) && (
-                    <button className="btn quiet" disabled={busy} onClick={() => run(`/appointments/${a.id}/cancel`, {})}>Cancel</button>
-                  )}
-                </p>
-              ))}
-              {['new_lead', 'quoted', 'booked'].includes(job.stage) && <AppointmentForm disabled={busy} onBook={(b) => run(`/jobs/${id}/appointments`, b)} />}
+              <div className="panel-head"><h2>Appointment</h2></div>
+              {job.appointments.filter((a: any) => a.status !== 'cancelled').length > 0 && (
+                <div className="list">
+                  {job.appointments.filter((a: any) => a.status !== 'cancelled').map((a: any) => (
+                    <div key={a.id} className="list-row">
+                      <div className="main">
+                        <span>{when(a.starts_at)} to {new Date(a.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                        <span className="faint small">Bay {a.bay}</span>
+                      </div>
+                      {['scheduled', 'confirmed'].includes(a.status) && (
+                        <button className="btn ghost sm" disabled={busy} onClick={() => run(`/appointments/${a.id}/cancel`, {})}>Cancel</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {['new_lead', 'quoted', 'booked'].includes(job.stage) && (
+                <div className="panel-foot"><AppointmentForm disabled={busy} onBook={(b) => run(`/jobs/${id}/appointments`, b)} /></div>
+              )}
+              {!['new_lead', 'quoted', 'booked'].includes(job.stage) && job.appointments.filter((a: any) => a.status !== 'cancelled').length === 0 && (
+                <p className="empty">No appointment on file.</p>
+              )}
             </section>
           )}
 
           {job.warranties.length > 0 && (
             <section className="panel">
-              <h2>Warranties</h2>
-              <div className="stack" style={{ gap: 8, marginTop: 8 }}>
-                {job.warranties.map((w: any) => <WarrantyRow key={w.id} w={w} />)}
-              </div>
+              <div className="panel-head"><h2>Warranties</h2></div>
+              <div className="list">{job.warranties.map((w: any) => <WarrantyRow key={w.id} w={w} />)}</div>
             </section>
           )}
         </div>
 
-        <div className="stack">
+        <div className="stack side">
           <section className="panel">
-            <h2>Total</h2>
-            <div className="totals" style={{ marginTop: 8 }}>
-              <span>Subtotal</span><span>{money(job.totals.subtotal_cents)}</span>
-              {job.totals.discount_cents > 0 && <><span>Discount</span><span>−{money(job.totals.discount_cents)}</span></>}
-              <span>Sales tax ({(job.tax_rate_bp / 100).toFixed(2)}%)</span><span>{money(job.totals.tax_cents)}</span>
-              <span className="grand">Total</span><span className="grand">{money(job.totals.total_cents)}</span>
-              <span>Paid</span><span>{money(job.totals.paid_cents)}</span>
-              <strong>Balance</strong><strong>{money(job.totals.balance_cents)}</strong>
+            <div className="panel-body">
+              <div className="totals">
+                <span className="label">Subtotal</span><span>{money(job.totals.subtotal_cents)}</span>
+                {job.totals.discount_cents > 0 && <><span className="label">Discount</span><span>−{money(job.totals.discount_cents)}</span></>}
+                <span className="label">Sales tax {(job.tax_rate_bp / 100).toFixed(2)}%</span><span>{money(job.totals.tax_cents)}</span>
+                <span className="rule" />
+                <span className="label">Total</span><span className="grand">{money(job.totals.total_cents)}</span>
+                <span className="label">Paid</span><span>{money(job.totals.paid_cents)}</span>
+              </div>
+              <div className={`balance${job.totals.balance_cents <= 0 && job.totals.total_cents > 0 ? ' zero' : ''}`}>
+                <span>Balance</span><span>{money(job.totals.balance_cents)}</span>
+              </div>
             </div>
           </section>
           <section className="panel">
-            <h2>Payments</h2>
-            {job.payments.length === 0 && <p className="muted">No payments yet.</p>}
-            {job.payments.map((p: any) => (
-              <p key={p.id} className="small">{new Date(p.paid_at).toLocaleDateString()} · {p.kind} · {p.method} · <strong>{p.kind === 'refund' ? '−' : ''}{money(p.amount_cents)}</strong></p>
-            ))}
-            {job.stage !== 'lost' && <PaymentForm key={`${job.totals.balance_cents}-${job.payments.length}`} balance={job.totals.balance_cents} paid={job.totals.paid_cents} disabled={busy}
-              onPay={(b) => run(`/jobs/${id}/payments`, b)} />}
+            <div className="panel-head"><h2>Payments</h2></div>
+            {job.payments.length === 0
+              ? <p className="empty" style={{ margin: 0 }}>No payments yet.</p>
+              : (
+                <div className="list">
+                  {job.payments.map((p: any) => (
+                    <div key={p.id} className="list-row">
+                      <div className="main">
+                        <span style={{ textTransform: 'capitalize' }}>{p.kind}</span>
+                        <span className="faint small">{new Date(p.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, {sourceLabel(p.method) ?? p.method}</span>
+                      </div>
+                      <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{p.kind === 'refund' ? '−' : ''}{money(p.amount_cents)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            {job.stage !== 'lost' && (job.totals.balance_cents > 0 || job.totals.paid_cents > 0) && (
+              <div className="panel-foot">
+                <PaymentForm key={`${job.totals.balance_cents}-${job.payments.length}`} balance={job.totals.balance_cents}
+                  disabled={busy} onPay={(b) => run(`/jobs/${id}/payments`, b)} />
+              </div>
+            )}
           </section>
           {job.waiver_signed_at && (
-            <section className="panel small"><span className="ok">Shade acknowledgment signed</span> by {job.waiver_name} on {new Date(job.waiver_signed_at).toLocaleDateString()}</section>
+            <p className="small muted" style={{ margin: 0 }}>
+              <span className="pill good">Shade acknowledgment signed</span>{' '}
+              by {job.waiver_name}, {new Date(job.waiver_signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </p>
           )}
         </div>
       </div>
@@ -353,25 +442,28 @@ function JobPage({ id }: { id: string }) {
   );
 }
 
-function LoseButton({ onLose, disabled }: { onLose: (r: string) => void; disabled: boolean }) {
+function LoseForm({ onLose, disabled }: { onLose: (r: string) => void; disabled: boolean }) {
   const [reason, setReason] = useState('');
   return (
-    <span className="actions">
-      <select aria-label="Reason lost" value={reason} onChange={(e) => setReason(e.target.value)}>
-        <option value="">Lost because…</option>
-        <option value="price">Price</option><option value="went_elsewhere">Went elsewhere</option>
-        <option value="no_response">No response</option><option value="illegal_shade">Wanted illegal shade</option><option value="other">Other</option>
-      </select>
+    <>
+      <label>Mark as lost
+        <select id="lost-reason" value={reason} onChange={(e) => setReason(e.target.value)}>
+          <option value="">Pick a reason</option>
+          <option value="price">Price</option><option value="went_elsewhere">Went elsewhere</option>
+          <option value="no_response">No response</option><option value="illegal_shade">Wanted illegal shade</option><option value="other">Other</option>
+        </select>
+      </label>
       <button className="btn danger" disabled={disabled || !reason} onClick={() => onLose(reason)}>Mark lost</button>
-    </span>
+    </>
   );
 }
 
 function WaiverForm({ onSign, disabled }: { onSign: (n: string) => void; disabled: boolean }) {
   const [name, setName] = useState('');
   return (
-    <form className="actions" style={{ marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); onSign(name); }}>
-      <input aria-label="Customer's full name" placeholder="Customer types their full name" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
+    <form className="actions" onSubmit={(e) => { e.preventDefault(); onSign(name); }}>
+      <input id="waiver-name" style={{ maxWidth: 320, flex: 1 }} aria-label="Customer's full name" placeholder="Customer types their full name"
+        value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
       <button className="btn" disabled={disabled}>Record signature</button>
     </form>
   );
@@ -388,26 +480,26 @@ function LineItemForm({ films, onAdd, disabled }: { films: any[]; onAdd: (b: obj
     if (ok) setF(blank);
   };
   return (
-    <form className="fields" style={{ marginTop: 12, alignItems: 'end' }} onSubmit={submit}>
+    <form className="fields" onSubmit={submit}>
       <label>Service
-        <select value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}>
+        <select id="li-service" value={f.service} onChange={(e) => setF({ ...f, service: e.target.value })}>
           {Object.entries(SERVICES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       </label>
       <label>Film
-        <select value={f.film_product_id} onChange={(e) => setF({ ...f, film_product_id: e.target.value })}>
+        <select id="li-film" value={f.film_product_id} onChange={(e) => setF({ ...f, film_product_id: e.target.value })}>
           <option value="">None</option>
           {films.filter((x) => x.active).map((x) => <option key={x.id} value={x.id}>{x.line}</option>)}
         </select>
       </label>
       <label>Shade
-        <select value={f.shade_vlt} onChange={(e) => setF({ ...f, shade_vlt: e.target.value })}>
-          <option value="">—</option>
+        <select id="li-shade" value={f.shade_vlt} onChange={(e) => setF({ ...f, shade_vlt: e.target.value })}>
+          <option value="">None</option>
           {[80, 70, 50, 40, 35, 20, 15, 5].map((s) => <option key={s} value={s}>{s}%</option>)}
         </select>
       </label>
-      <label>Price ($)<input value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" /></label>
-      <button className="btn" disabled={disabled}>Add service</button>
+      <label>Price ($)<input id="li-price" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" placeholder="0.00" /></label>
+      <button className="btn secondary" disabled={disabled}>Add service</button>
     </form>
   );
 }
@@ -416,43 +508,42 @@ function AppointmentForm({ onBook, disabled }: { onBook: (b: object) => Promise<
   const [f, setF] = useState({ date: '', time: '10:00', hours: '2', bay: '1' });
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    // Built from the browser's local time, then sent as an ISO instant.
+    // Built from the device's local time, then sent as an ISO instant.
     const start = new Date(`${f.date}T${f.time}`);
     const end = new Date(start.getTime() + Number(f.hours) * 3600_000);
     await onBook({ starts_at: start.toISOString(), ends_at: end.toISOString(), bay: Number(f.bay) });
   };
   return (
-    <form className="fields" style={{ marginTop: 8, alignItems: 'end' }} onSubmit={submit}>
-      <label>Date<input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required /></label>
-      <label>Start<input type="time" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} required /></label>
+    <form className="fields" onSubmit={submit}>
+      <label>Date<input id="appt-date" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required /></label>
+      <label>Start<input id="appt-time" type="time" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} required /></label>
       <label>Hours
-        <select value={f.hours} onChange={(e) => setF({ ...f, hours: e.target.value })}>{['1', '1.5', '2', '3', '4', '6', '8'].map((h) => <option key={h}>{h}</option>)}</select>
+        <select id="appt-hours" value={f.hours} onChange={(e) => setF({ ...f, hours: e.target.value })}>{['1', '1.5', '2', '3', '4', '6', '8'].map((h) => <option key={h}>{h}</option>)}</select>
       </label>
-      <label>Bay<select value={f.bay} onChange={(e) => setF({ ...f, bay: e.target.value })}>{['1', '2', '3'].map((b) => <option key={b}>{b}</option>)}</select></label>
-      <button className="btn" disabled={disabled}>Book</button>
+      <label>Bay<select id="appt-bay" value={f.bay} onChange={(e) => setF({ ...f, bay: e.target.value })}>{['1', '2', '3'].map((b) => <option key={b}>{b}</option>)}</select></label>
+      <button className="btn secondary" disabled={disabled}>Book</button>
     </form>
   );
 }
 
-function PaymentForm({ balance, paid, onPay, disabled }: { balance: number; paid: number; onPay: (b: object) => Promise<boolean>; disabled: boolean }) {
+function PaymentForm({ balance, onPay, disabled }: { balance: number; onPay: (b: object) => Promise<boolean>; disabled: boolean }) {
   // Starts prefilled with the balance; the parent remounts this form (key) whenever the balance changes.
-  const [f, setF] = useState(() => ({ amount: balance > 0 ? (balance / 100).toFixed(2) : '', kind: 'balance', method: 'card' }));
+  const [f, setF] = useState(() => ({ amount: balance > 0 ? (balance / 100).toFixed(2) : '', kind: balance > 0 ? 'balance' : 'refund', method: 'card' }));
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     await onPay({ amount_cents: Math.round(Number(f.amount) * 100), kind: f.kind, method: f.method });
   };
-  if (balance <= 0 && paid <= 0) return null;
   return (
-    <form className="form" style={{ marginTop: 8 }} onSubmit={submit}>
+    <form className="form" style={{ gap: 12 }} onSubmit={submit}>
+      <label>Amount ($)<input id="pay-amount" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" /></label>
       <div className="fields">
-        <label>Amount ($)<input value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" /></label>
         <label>Type
-          <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
+          <select id="pay-kind" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
             <option value="balance">Payment</option><option value="deposit">Deposit</option><option value="refund">Refund</option>
           </select>
         </label>
         <label>Method
-          <select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
+          <select id="pay-method" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
             {[['card', 'Card'], ['cash', 'Cash'], ['zelle', 'Zelle'], ['affirm', 'Affirm'], ['afterpay', 'Afterpay'], ['terms', 'Net terms']].map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </label>
@@ -462,15 +553,18 @@ function PaymentForm({ balance, paid, onPay, disabled }: { balance: number; paid
   );
 }
 
-function WarrantyRow({ w }: { w: any }) {
+function WarrantyRow({ w, showCustomer = false }: { w: any; showCustomer?: boolean }) {
+  const status = w.status === 'voided' ? <span className="pill bad">Voided</span>
+    : w.in_term === false ? <span className="pill warn">Expired</span>
+    : <span className="pill good">Active</span>;
   return (
-    <div className="warranty">
-      <div className="row" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-        <span className="num">{w.number}</span>
-        <span>{w.status === 'voided' ? <span className="flag">Voided</span> : w.in_term === false ? <span className="flag">Expired</span> : <span className="ok">Active</span>}</span>
+    <div className="list-row">
+      <div className="main">
+        <span className="warranty-num">{w.number}</span>
+        <span>{w.coverage === 'labor' ? 'Shop labor' : `${w.film_brand} ${w.film_line}`}, {w.expires_on ? `until ${w.expires_on}` : 'lifetime'}</span>
+        {showCustomer && <span className="faint small">{personName(w)}, {vehicleName(w)}{w.plate ? `, plate ${w.plate}` : ''}{w.claim_count ? `, ${w.claim_count} claim(s)` : ''}</span>}
       </div>
-      <div>{w.coverage === 'labor' ? 'Shop labor' : `${w.film_brand} ${w.film_line}`} · {w.expires_on ? `${w.starts_on} to ${w.expires_on}` : `Lifetime from ${w.starts_on}`}</div>
-      {w.first_name !== undefined && <div className="muted small">{personName(w)} · {vehicleName(w)}{w.plate ? ` · ${w.plate}` : ''}{w.claim_count ? ` · ${w.claim_count} claim(s)` : ''}</div>}
+      {status}
     </div>
   );
 }
@@ -487,21 +581,29 @@ function WarrantyLookup() {
     catch (err) { setError((err as Error).message); setResults(null); }
   };
   return (
-    <>
-      <div className="page-head"><h1>Warranty lookup</h1></div>
-      <form className="panel actions" onSubmit={search} style={{ alignItems: 'end' }}>
+    <div style={{ maxWidth: 820 }}>
+      <div className="page-head">
+        <div>
+          <h1>Warranties</h1>
+          <p className="muted">Find a customer's coverage by phone, plate, VIN or warranty number.</p>
+        </div>
+      </div>
+      <form className="panel panel-body actions" onSubmit={search} style={{ alignItems: 'end' }}>
         <label style={{ flex: 1, minWidth: 220 }}>Phone, plate, VIN or warranty number
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="(214) 555-0123 or DS-1042-M1" required minLength={3} />
+          <input id="warranty-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="(214) 555-0123 or DS-1042-M1" required minLength={3} />
         </label>
         <button className="btn">Search</button>
       </form>
-      {error && <div className="error" role="alert" style={{ marginTop: 12 }}>{error}</div>}
+      {error && <div className="error" role="alert" style={{ marginTop: 16 }}>{error}</div>}
       {results && (
-        <div className="stack" style={{ marginTop: 16, gap: 8 }}>
-          {results.length === 0 && <p className="muted">No warranty matches "{q}". Check the plate for typos, or search by the customer's phone.</p>}
-          {results.map((w) => <a key={w.id} href={`#/jobs/${w.job_id}`} style={{ textDecoration: 'none', color: 'inherit' }}><WarrantyRow w={w} /></a>)}
-        </div>
+        <section className="panel" style={{ marginTop: 16 }}>
+          <div className="panel-head"><h2>{results.length} {results.length === 1 ? 'result' : 'results'}</h2></div>
+          {results.length === 0 && <p className="empty" style={{ margin: 0 }}>No warranty matches "{q}". Check the plate for typos, or search by phone.</p>}
+          <div className="list">
+            {results.map((w) => <a key={w.id} href={`#/jobs/${w.job_id}`} style={{ color: 'inherit', textDecoration: 'none' }}><WarrantyRow w={w} showCustomer /></a>)}
+          </div>
+        </section>
       )}
-    </>
+    </div>
   );
 }

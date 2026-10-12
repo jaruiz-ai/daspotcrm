@@ -61,7 +61,8 @@ describe('UI end to end', () => {
     await user.click(screen.getByRole('button', { name: 'Create lead' }));
 
     // Lands on the job page.
-    expect(await screen.findByRole('heading', { name: /Marcus · 2023 Tesla Model Y/ })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Marcus' })).toBeTruthy();
+    expect(screen.getByText('2023 Tesla Model Y')).toBeTruthy();
 
     // Quote: 20% front sides triggers the Texas waiver warning.
     await user.selectOptions(screen.getByLabelText('Film'), 'Nano Ceramic');
@@ -95,10 +96,10 @@ describe('UI end to end', () => {
     await user.click(screen.getByRole('button', { name: 'Record payment' }));
     await screen.findByRole('heading', { name: 'Warranties' });
     expect(screen.getAllByText(/^DS-\d+-M1$/).length).toBe(1);
-    expect(screen.getByText('Paid', { selector: 'strong' })).toBeTruthy();
+    expect(screen.getByText('Paid', { selector: '.pill' })).toBeTruthy();
 
     // Warranty lookup by phone finds it.
-    await user.click(screen.getByRole('link', { name: 'Warranty lookup' }));
+    await user.click(screen.getByRole('link', { name: 'Warranties' }));
     await user.type(await screen.findByLabelText(/Phone, plate, VIN/), '214-555-7788');
     await user.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => expect(screen.getAllByText(/^DS-\d+-(M1|L1)$/).length).toBe(2));
