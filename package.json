@@ -1,0 +1,12 @@
+{
+  "name": "daspot-crm",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm -w apps/api test && npm -w apps/web test",
+    "typecheck": "npm -w apps/api run typecheck && npm -w apps/web run typecheck",
+    "build": "npm -w apps/api run build && npm -w apps/web run build"
+  }
+}
