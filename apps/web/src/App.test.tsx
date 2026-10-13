@@ -95,6 +95,11 @@ describe('UI end to end', () => {
     const payCard = screen.getByRole('button', { name: /Paid by card/ });
     expect(payCard.textContent).toContain('$487.13'); // 450.00 + 8.25% tax
     await user.click(payCard);
+    // Nothing is recorded until the confirmation sheet is answered.
+    const sheet = await screen.findByRole('dialog');
+    expect(sheet.textContent).toMatch(/Record \$487\.13 paid by card\?/);
+    expect(sheet.textContent).toMatch(/Marcus gets a receipt text with the warranty numbers/);
+    await user.click(within(sheet).getByRole('button', { name: 'Yes, record $487.13' }));
     await screen.findByRole('heading', { name: 'Warranties' });
     expect(screen.getAllByText(/^DS-\d+-M1$/).length).toBe(1);
     expect(screen.getByText('Paid', { selector: '.pill' })).toBeTruthy();
@@ -130,6 +135,7 @@ describe('UI end to end', () => {
     await user.type(amount, '9999');
     expect(amount.value).toBe('9999');
     await user.click(screen.getByRole('button', { name: 'Record payment' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /Yes, record/ }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/exceeds the balance/);
   });
 
@@ -216,6 +222,32 @@ describe('UI end to end', () => {
     // The imported warranty is findable by its old number with the same dates.
     const found = await (await fetch('/api/warranties/lookup?q=W-77', { headers: { authorization: 'Bearer ui-token' } })).json();
     expect(found[0]).toMatchObject({ starts_on: '2024-04-05', expires_on: '2029-04-05', first_name: 'Rosa' });
+  });
+
+  it('a mis-tap on a payment or Remove changes nothing until confirmed', async () => {
+    const user = userEvent.setup();
+    const H = { authorization: 'Bearer ui-token', 'content-type': 'application/json' };
+    const lead = await (await fetch('/api/leads', { method: 'POST', headers: H,
+      body: JSON.stringify({ contact: { first_name: 'Tess', mobile: '2145550188' }, vehicle: { make: 'Audi' } }) })).json();
+    await fetch(`/api/jobs/${lead.job.id}/line-items`, { method: 'POST', headers: H, body: JSON.stringify({ service: 'windshield', unit_price_cents: 20000 }) });
+    location.hash = `#/jobs/${lead.job.id}`;
+    await signIn(user);
+
+    await user.click(await screen.findByRole('button', { name: /Paid cash/ }));
+    let sheet = await screen.findByRole('dialog');
+    expect(sheet.textContent).toMatch(/Record \$216\.50 paid in cash\?/);
+    await user.click(within(sheet).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    await user.click(screen.getByRole('button', { name: 'Remove Windshield' }));
+    sheet = await screen.findByRole('dialog');
+    expect(sheet.textContent).toMatch(/\$200\.00 comes off the quote/);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    const job = await (await fetch(`/api/jobs/${lead.job.id}`, { headers: H })).json();
+    expect(job.payments).toEqual([]);
+    expect(job.line_items).toHaveLength(1);
   });
 
   it('shows new leads on the board in the right column', async () => {

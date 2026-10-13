@@ -74,6 +74,14 @@ kept. Dates read month-first unless the column proves day-first; the preview say
 Month ends follow the calendar (Feb 29, 2024 + 5 years = Feb 28, 2029). The import saves exactly the preview's
 dates, and importing the same file twice creates no duplicates.
 
+## iPhone
+
+Built for one-handed use on an iPhone: a bottom tab bar, the job's next step pinned above it, and content kept
+clear of the notch and home indicator (`--sat`/`--sab` safe-area variables in `styles.css`). Anything that records
+money, texts a customer, cancels, or removes asks first in a bottom sheet. The bottom bars step aside while the
+keyboard is up. `tools/iphone-tap-audit.mjs` checks every screen at iPhone SE and iPhone 15 Pro sizes for targets
+under 44pt, overlapping or crowded targets, and anything stuck under the bars or home indicator.
+
 ## Business rules enforced
 
 - A lead's phone number is its identity (E.164, unique). Texts and WhatsApp from the same number land on one contact.

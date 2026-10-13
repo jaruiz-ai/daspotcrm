@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { api, ApiError, getToken, setToken, SIGNED_OUT_EVENT, money, STAGES, SERVICES, vehicleName, personName, formatPhone } from './api';
 
 /* ---------- tiny hash router ---------- */
@@ -22,6 +22,44 @@ function useLoad<T>(fn: () => Promise<T>, deps: unknown[]) {
   }, deps);
   useEffect(reload, [reload]);
   return { data, error, reload, setData };
+}
+
+/** A question that must be answered before an action with consequences (money, texts, removing things). */
+interface Ask {
+  title: string;
+  body?: string;
+  confirm: string;
+  danger?: boolean;
+  keep?: string;
+  run: () => Promise<unknown>;
+}
+
+/** Bottom sheet on phones (thumb reach), small dialog on computers. Cancel is the default focus. */
+function ConfirmSheet({ ask, onClose }: { ask: Ask; onClose: () => void }) {
+  const [working, setWorking] = useState(false);
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  const go = async () => {
+    setWorking(true);
+    try { await ask.run(); } finally { setWorking(false); onClose(); }
+  };
+  return (
+    <div className="sheet-backdrop" onClick={(e) => { if (e.target === e.currentTarget && !working) onClose(); }}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <h2 id="sheet-title">{ask.title}</h2>
+        {ask.body && <p className="muted" style={{ margin: 0 }}>{ask.body}</p>}
+        <div className="sheet-actions">
+          <button className={`btn ${ask.danger ? 'danger-solid' : ''}`} disabled={working} onClick={go}>{working ? 'Working…' : ask.confirm}</button>
+          <button className="btn secondary" autoFocus disabled={working} onClick={onClose}>{ask.keep ?? 'Cancel'}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** Bar darkness for a stage: 70% film lets 70% of light through, so it is 30% dark. */
@@ -298,8 +336,22 @@ function JobPage({ id }: { id: string }) {
   const { data: films } = useLoad(() => api<any[]>('/film-products'), []);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ask, setAsk] = useState<Ask | null>(null);
+  const closeAsk = useCallback(() => setAsk(null), []);
+  const moreRef = useRef<HTMLDetailsElement>(null);
+
+  // The More menu closes when you tap anywhere else, so it never sits over the page by accident.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const m = moreRef.current;
+      if (m?.open && !m.contains(e.target as Node)) m.open = false;
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, []);
 
   const run = async (path: string, body: unknown, method = 'POST') => {
+    if (moreRef.current) moreRef.current.open = false;
     setBusy(true);
     setActionError(null);
     try {
@@ -323,6 +375,24 @@ function JobPage({ id }: { id: string }) {
   const canLose = !locked && !['in_bay', 'completed'].includes(job.stage);
   const vehicle = vehicleName(job) || job.property_address;
   const src = sourceLabel(job.lead_source);
+  const who = job.first_name || 'The customer';
+  const METHOD: Record<string, string> = { card: 'by card', cash: 'in cash', zelle: 'by Zelle', affirm: 'with Affirm', afterpay: 'with Afterpay', terms: 'on terms' };
+
+  const askPay = (b: { amount_cents: number; kind: string; method: string }) => {
+    const amt = money(b.amount_cents);
+    if (b.kind === 'refund') {
+      return setAsk({ title: `Record a ${amt} refund?`, body: `Paid on this job drops to ${money(job.totals.paid_cents - b.amount_cents)}.`,
+        confirm: `Yes, record ${amt} refund`, danger: true, run: () => run(`/jobs/${id}/payments`, b) });
+    }
+    const settles = b.amount_cents >= job.totals.balance_cents;
+    const body = !settles
+      ? `${money(job.totals.balance_cents - b.amount_cents)} will still be owed.`
+      : job.stage === 'completed'
+        ? `Job #${job.number} moves to Paid, the warranties are issued, and ${who} gets a receipt text with the warranty numbers.`
+        : `Paid in full. Warranties are issued when the job is marked completed.`;
+    setAsk({ title: `Record ${amt} paid ${METHOD[b.method] ?? ''}?`.replace(' ?', '?'), body,
+      confirm: `Yes, record ${amt}`, run: () => run(`/jobs/${id}/payments`, b) });
+  };
 
   return (
     <div className="job-page">
@@ -349,13 +419,18 @@ function JobPage({ id }: { id: string }) {
           </div>
           <div className={`actions job-actions${primary ? "" : " no-main"}`}>
             {(secondary.length > 0 || canLose) && (
-              <details className="more">
+              <details className="more" ref={moreRef}>
                 <summary className="btn secondary">More</summary>
                 <div className="more-menu">
                   {secondary.map((n) => (
                     <button key={n.to} className="btn secondary" disabled={busy} onClick={() => run(`/jobs/${id}/stage`, { to: n.to })}>{n.label}</button>
                   ))}
-                  {canLose && <LoseForm disabled={busy} onLose={(reason) => run(`/jobs/${id}/stage`, { to: 'lost', lost_reason: reason })} />}
+                  {canLose && <LoseForm disabled={busy} onLose={(reason) => {
+                    if (moreRef.current) moreRef.current.open = false;
+                    setAsk({ title: `Mark job #${job.number} lost?`, danger: true, confirm: 'Yes, mark lost', keep: 'Keep the job',
+                      body: `Reason: ${reason.replace('_', ' ')}. Any upcoming appointment is cancelled. You can reopen it later.`,
+                      run: () => run(`/jobs/${id}/stage`, { to: 'lost', lost_reason: reason }) });
+                  }} />}
                 </div>
               </details>
             )}
@@ -406,7 +481,9 @@ function JobPage({ id }: { id: string }) {
                       <td className="desk-only">{li.shade_vlt ? `${li.shade_vlt}%` : <span className="faint">None</span>}</td>
                       <td className="num">{money(li.qty * li.unit_price_cents)}</td>
                       {!locked && <td className="num"><button className="btn ghost sm" disabled={busy} aria-label={`Remove ${SERVICES[li.service]}`}
-                        onClick={() => run(`/jobs/${id}/line-items/${li.id}`, undefined, 'DELETE')}>Remove</button></td>}
+                        onClick={() => setAsk({ title: `Remove ${SERVICES[li.service] ?? 'this service'}?`, danger: true,
+                          body: `${money(li.qty * li.unit_price_cents)} comes off the quote.`, confirm: 'Yes, remove', keep: 'Keep it',
+                          run: () => run(`/jobs/${id}/line-items/${li.id}`, undefined, 'DELETE') })}>Remove</button></td>}
                     </tr>
                   ))}
                 </tbody>
@@ -427,7 +504,9 @@ function JobPage({ id }: { id: string }) {
                         <span className="faint small">Bay {a.bay}</span>
                       </div>
                       {['scheduled', 'confirmed'].includes(a.status) && (
-                        <button className="btn ghost sm" disabled={busy} onClick={() => run(`/appointments/${a.id}/cancel`, {})}>Cancel</button>
+                        <button className="btn ghost sm" disabled={busy} onClick={() => setAsk({ title: 'Cancel this appointment?', danger: true,
+                          body: `${when(a.starts_at)}, bay ${a.bay}. The bay opens up for other jobs.`, confirm: 'Yes, cancel it', keep: 'Keep it',
+                          run: () => run(`/appointments/${a.id}/cancel`, {}) })}>Cancel</button>
                       )}
                     </div>
                   ))}
@@ -490,7 +569,7 @@ function JobPage({ id }: { id: string }) {
             {job.stage !== 'lost' && (job.totals.balance_cents > 0 || job.totals.paid_cents > 0) && (
               <div className="panel-foot">
                 <PaymentForm key={`${job.totals.balance_cents}-${job.payments.length}`} balance={job.totals.balance_cents}
-                  disabled={busy} onPay={(b) => run(`/jobs/${id}/payments`, b)} />
+                  disabled={busy} onPay={async (b) => { askPay(b as any); return true; }} />
               </div>
             )}
           </section>
@@ -502,6 +581,7 @@ function JobPage({ id }: { id: string }) {
           )}
         </div>
       </div>
+      {ask && <ConfirmSheet ask={ask} onClose={closeAsk} />}
     </div>
   );
 }
