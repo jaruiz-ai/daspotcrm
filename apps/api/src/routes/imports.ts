@@ -17,10 +17,12 @@ export function importsRouter({ db }: Deps) {
       csv: z.string().min(1).max(3_000_000),
       dry_run: z.boolean().default(true),
       mapping: z.partialRecord(z.enum(fields), z.number().int().min(0).max(200)).optional(),
+      // Override when the preview guessed the wrong day/month order.
+      date_order: z.enum(['mdy', 'dmy']).optional(),
     }).parse(req.body);
     const out = b.dry_run
-      ? await importClients(db, b.csv, { dryRun: true, mapping: b.mapping })
-      : await db.tx((q) => importClients(q, b.csv, { dryRun: false, mapping: b.mapping }));
+      ? await importClients(db, b.csv, { dryRun: true, mapping: b.mapping, dateOrder: b.date_order })
+      : await db.tx((q) => importClients(q, b.csv, { dryRun: false, mapping: b.mapping, dateOrder: b.date_order }));
     res.json({ ...out, dry_run: b.dry_run, fields: Object.keys(IMPORT_FIELDS) });
   });
 

@@ -302,3 +302,33 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) {
   .pay-card { height: 58px; }
 }
+
+/* ---------- import ---------- */
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.file-pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--ink); }
+.file-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file-pick input:focus-visible + .btn { outline: 2px solid var(--accent); outline-offset: 2px; }
+.recon-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.recon-summary > div { display: grid; gap: 2px; padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); font-size: 0.8125rem; color: var(--muted); }
+.recon-summary .big { font-family: var(--display); font-size: 2rem; font-weight: 600; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.recon-summary .warn { background: var(--warn-soft); border-color: transparent; }
+.recon-summary .warn .big { color: var(--warn); }
+.import-cols > summary { cursor: pointer; list-style: none; }
+.import-cols > summary::-webkit-details-marker { display: none; }
+.import-cols:not([open]) > summary { border-bottom: 0; }
+.check { display: flex; align-items: center; gap: 8px; flex-direction: row; color: var(--muted); }
+.check input { width: 20px; height: 20px; }
+.import-row { display: grid; gap: 6px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.import-row:last-child { border-bottom: none; }
+.import-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.import-warranty { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px 12px; padding: 8px 12px; background: var(--sunken); border-radius: var(--radius); font-size: 0.9375rem; }
+.import-warranty .dates { font-variant-numeric: tabular-nums; font-weight: 600; }
+.import-note { color: var(--warn); }
+.import-go { display: grid; gap: 8px; }
+.import-go .btn { height: 52px; }
+@media (max-width: 720px) {
+  .import-row { padding: 14px 16px; }
+  .import-warranty { grid-template-columns: minmax(0, 1fr) auto; }
+  .import-warranty .dates { grid-column: 1 / -1; grid-row: 2; }
+  .import-go { position: sticky; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); background: var(--ground); padding: 8px 0; }
+}

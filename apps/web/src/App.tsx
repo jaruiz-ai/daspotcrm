@@ -51,6 +51,7 @@ export default function App() {
   if (jobMatch) page = <JobPage id={jobMatch[1]} />;
   else if (route === '/new') page = <QuickLead />;
   else if (route === '/warranty') page = <WarrantyLookup />;
+  else if (route === '/import') page = <ImportClients />;
   else page = <Board />;
 
   const nav = [['#/', 'Pipeline'], ['#/warranty', 'Warranties']];
@@ -671,6 +672,7 @@ function WarrantyLookup() {
           <h1>Warranties</h1>
           <p className="muted">Find a customer's coverage by name, phone, email, plate, VIN or warranty number.</p>
         </div>
+        <a className="btn secondary" href="#/import">Import past clients</a>
       </div>
       <form className="panel panel-body actions" onSubmit={search} style={{ alignItems: 'end' }}>
         <label style={{ flex: 1, minWidth: 220 }}>Name, phone, email, plate, VIN or warranty number
@@ -688,6 +690,179 @@ function WarrantyLookup() {
             {results.map((w) => <a key={w.id} href={`#/jobs/${w.job_id}`} style={{ color: 'inherit', textDecoration: 'none' }}><WarrantyRow w={w} showCustomer /></a>)}
           </div>
         </section>
+      )}
+    </div>
+  );
+}
+
+/* ---------- import past clients ---------- */
+const FIELD_LABELS: Record<string, string> = {
+  full_name: 'Full name', first_name: 'First name', last_name: 'Last name', phone: 'Phone', email: 'Email',
+  language: 'Language', vehicle: 'Vehicle (year make model)', year: 'Year', make: 'Make', model: 'Model', plate: 'Plate',
+  vin: 'VIN', install_date: 'Install date', film: 'Film', shade: 'Shade %', service: 'Service', price: 'Price',
+  warranty_number: 'Warranty number', warranty_expires: 'Warranty end date', warranty_term: 'Warranty length', notes: 'Notes',
+};
+const longDay = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+function ImportClients() {
+  const [csv, setCsv] = useState<string | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [mapping, setMapping] = useState<Record<string, number> | undefined>(undefined);
+  const [order, setOrder] = useState<'mdy' | 'dmy' | undefined>(undefined);
+  const [preview, setPreview] = useState<any | null>(null);
+  const [done, setDone] = useState<any | null>(null);
+  const [onlyIssues, setOnlyIssues] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (text: string, dry: boolean, m?: Record<string, number>, o?: 'mdy' | 'dmy') => {
+    setBusy(true); setError(null);
+    try {
+      const out = await api('/import/clients', { body: { csv: text, dry_run: dry, mapping: m, date_order: o } });
+      if (dry) { setPreview(out); setMapping(out.mapping); setOrder(out.date_order.order); } else setDone(out);
+    } catch (err) { setError((err as Error).message); }
+    finally { setBusy(false); }
+  };
+  const onFile = async (e: { target: HTMLInputElement }) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setFileName(file.name); setCsv(text); setDone(null); setMapping(undefined); setOrder(undefined);
+    await run(text, true);
+  };
+  const remap = async (field: string, idx: string) => {
+    const next = { ...(mapping ?? {}) };
+    for (const k of Object.keys(next)) if (next[k] === Number(idx)) delete next[k];
+    if (idx === '') delete next[field]; else next[field] = Number(idx);
+    setMapping(next);
+    if (csv) await run(csv, true, next, order);
+  };
+  const reorder = async (o: 'mdy' | 'dmy') => { setOrder(o); if (csv) await run(csv, true, mapping, o); };
+
+  if (done) {
+    return (
+      <div style={{ maxWidth: 820 }}>
+        <div className="page-head"><div><p className="crumb"><a href="#/warranty">Warranties</a></p><h1>Import finished</h1></div></div>
+        <section className="panel"><div className="panel-body form" style={{ gap: 10 }}>
+          <div className="balance zero"><span>Imported from {fileName}</span><span>Done</span></div>
+          <p style={{ margin: 0 }}>{done.counts.contacts_new} new clients, {done.counts.contacts_existing} already on file, {done.counts.vehicles} cars, {done.counts.past_jobs} past jobs and {done.counts.warranties} warranties.</p>
+          {done.counts.skipped > 0 && <p className="muted" style={{ margin: 0 }}>{done.counts.skipped} rows were skipped (no valid phone number).</p>}
+          <div className="actions"><a className="btn" href="#/warranty">Look up a warranty</a><a className="btn secondary" href="#/">Back to pipeline</a></div>
+        </div></section>
+      </div>
+    );
+  }
+
+  const rows: any[] = preview?.rows ?? [];
+  const shown = onlyIssues ? rows.filter((r) => r.notes.length || r.status === 'skipped') : rows;
+  const issues = rows.filter((r) => r.notes.length || r.status === 'skipped').length;
+  const importable = preview ? preview.counts.rows - preview.counts.skipped : 0;
+
+  return (
+    <div style={{ maxWidth: 900 }}>
+      <div className="page-head">
+        <div>
+          <p className="crumb"><a href="#/warranty">Warranties</a></p>
+          <h1>Import past clients</h1>
+          <p className="muted">Bring in clients, cars and warranties from your Google Sheet. Nothing is saved until you check the preview and tap Import.</p>
+        </div>
+      </div>
+
+      <section className="panel">
+        <div className="panel-body form" style={{ gap: 12 }}>
+          <ol className="steps small muted">
+            <li>In Google Sheets, open the sheet and choose File, then Download, then Comma-separated values (.csv). For a Google Doc, copy the table into a Sheet first.</li>
+            <li>Choose that file here and check the preview, especially the warranty dates.</li>
+          </ol>
+          <label className="file-pick">
+            <input id="import-file" type="file" accept=".csv,text/csv" onChange={onFile} />
+            <span className="btn">{fileName ? 'Choose a different file' : 'Choose spreadsheet file'}</span>
+            {fileName && <span className="small muted">{fileName}</span>}
+          </label>
+          {busy && <p className="muted small" style={{ margin: 0 }}>Reading…</p>}
+          {error && <div className="error" role="alert">{error}</div>}
+        </div>
+      </section>
+
+      {preview && (
+        <div className="stack" style={{ marginTop: 16, gap: 16 }}>
+          <div className="recon-summary" aria-label="Summary">
+            <div><span className="big">{preview.counts.contacts_new}</span><span>new clients</span></div>
+            <div><span className="big">{preview.counts.warranties}</span><span>warranties</span></div>
+            <div className={issues ? 'warn' : ''}><span className="big">{issues}</span><span>rows to check</span></div>
+          </div>
+
+          <section className="panel">
+            <div className="panel-head"><h2>Dates</h2></div>
+            <div className="panel-body form" style={{ gap: 10 }}>
+              <p className="small" style={{ margin: 0 }}>
+                {preview.date_order.conflicting
+                  ? 'This sheet mixes month-first and day-first dates. Check the dates below carefully.'
+                  : preview.date_order.ambiguous
+                    ? `Every date in this sheet could be read either way. They are read as ${order === 'dmy' ? 'day/month/year' : 'month/day/year (US)'}. Check one you know.`
+                    : `Dates read as ${order === 'dmy' ? 'day/month/year' : 'month/day/year (US)'}.`}
+              </p>
+              <div className="pay-row" role="group" aria-label="Date order">
+                <button type="button" className={`btn ${order === 'mdy' ? '' : 'secondary'}`} aria-pressed={order === 'mdy'} disabled={busy} onClick={() => reorder('mdy')}>Month first (3/15)</button>
+                <button type="button" className={`btn ${order === 'dmy' ? '' : 'secondary'}`} aria-pressed={order === 'dmy'} disabled={busy} onClick={() => reorder('dmy')}>Day first (15/3)</button>
+              </div>
+            </div>
+          </section>
+
+          <details className="panel import-cols">
+            <summary className="panel-head"><h2>Columns</h2><span className="small muted">Change if a column was matched wrong</span></summary>
+            <div className="panel-body fields">
+              {Object.keys(FIELD_LABELS).map((f) => (
+                <label key={f}>{FIELD_LABELS[f]}
+                  <select id={`map-${f}`} value={mapping?.[f] ?? ''} disabled={busy} onChange={(e) => remap(f, e.target.value)}>
+                    <option value="">Not in sheet</option>
+                    {preview.headers.map((h: string, i: number) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </details>
+
+          {preview.unmatched_films.length > 0 && (
+            <div className="notice">
+              <div><strong>Films not in your film list:</strong> {preview.unmatched_films.map((f: any) => `${f.film} (${f.rows})`).join(', ')}.</div>
+              <div className="small">Rows with these films keep their warranty only when the sheet has an end date or length. Add the film to your film list and re-check to use its standard warranty.</div>
+            </div>
+          )}
+
+          <section className="panel">
+            <div className="panel-head">
+              <h2>{shown.length} of {rows.length} rows</h2>
+              <label className="check small"><input type="checkbox" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} /> Only rows to check</label>
+            </div>
+            <div className="list">
+              {shown.map((r) => (
+                <div key={r.line} className="import-row">
+                  <div className="import-top">
+                    <strong>{r.name}</strong>
+                    {r.status === 'skipped' ? <span className="pill bad">Skipped</span> : r.status === 'existing' ? <span className="pill">Already on file</span> : <span className="pill accent">New</span>}
+                  </div>
+                  <div className="faint small">Row {r.line}{r.phone ? `, ${formatPhone(r.phone)}` : ''}{r.vehicle ? `, ${r.vehicle}` : ''}{r.install_date ? `, installed ${longDay(r.install_date)}` : ''}</div>
+                  {r.warranties.map((w: any, i: number) => (
+                    <div key={i} className="import-warranty">
+                      <span>{w.number ?? 'New number'}<span className="faint"> {w.coverage === 'labor' ? 'labor' : w.film_line}</span></span>
+                      <span className="dates">{longDay(w.starts_on)} to {w.expires_on ? longDay(w.expires_on) : 'lifetime'}</span>
+                      <span className={`pill ${w.in_term ? 'good' : 'warn'}`}>{w.in_term ? 'Active' : 'Expired'}</span>
+                    </div>
+                  ))}
+                  {r.notes.map((n: string, i: number) => <div key={i} className="import-note small">{n}</div>)}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <div className="import-go">
+            <button className="btn" disabled={busy || importable === 0} onClick={() => csv && run(csv, false, mapping, order)}>
+              Import {importable} {importable === 1 ? 'row' : 'rows'}
+            </button>
+            <span className="small muted">Rows marked Skipped are left out. Importing the same file again won't create duplicates.</span>
+          </div>
+        </div>
       )}
     </div>
   );

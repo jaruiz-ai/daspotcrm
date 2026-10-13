@@ -187,6 +187,37 @@ describe('UI end to end', () => {
     expect(screen.getByRole('link', { name: 'Text' }).getAttribute('href')).toBe('sms:+12145550190');
   });
 
+  it('imports past clients and shows each warranty date before saving', async () => {
+    const user = userEvent.setup();
+    const csv = [
+      'Customer Name,Phone #,Vehicle,Install Date,Film,Warranty #,Warranty Expires',
+      'Rosa Delgado,(214) 555-0201,2022 Nissan Altima,04/05/2024,Carbon,W-77,04/05/2029',
+      'Hugo Rey,2145550202,2018 Ford F-150,6/30/2023,Nano Ceramic,,',
+      'Nobody,,,,,,',
+    ].join('\n');
+    location.hash = '#/import';
+    await signIn(user);
+    await user.upload(await screen.findByLabelText(/Choose spreadsheet file/), new File([csv], 'clients.csv', { type: 'text/csv' }));
+
+    // US order by default: 04/05/2024 is April 5.
+    expect(await screen.findByText('Apr 5, 2024 to Apr 5, 2029')).toBeTruthy();
+    expect(screen.getByText('Jun 30, 2023 to lifetime')).toBeTruthy();
+    expect(screen.getByText('Skipped')).toBeTruthy();
+
+    // Switching to day-first re-reads both dates on that row as May 4 (the June 30 row can't be day-first).
+    await user.click(screen.getByRole('button', { name: /Day first/ }));
+    expect(await screen.findByText('May 4, 2024 to May 4, 2029')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /Month first/ }));
+    await screen.findByText('Apr 5, 2024 to Apr 5, 2029');
+
+    await user.click(screen.getByRole('button', { name: /Import 2 rows/ }));
+    expect(await screen.findByRole('heading', { name: 'Import finished' })).toBeTruthy();
+
+    // The imported warranty is findable by its old number with the same dates.
+    const found = await (await fetch('/api/warranties/lookup?q=W-77', { headers: { authorization: 'Bearer ui-token' } })).json();
+    expect(found[0]).toMatchObject({ starts_on: '2024-04-05', expires_on: '2029-04-05', first_name: 'Rosa' });
+  });
+
   it('shows new leads on the board in the right column', async () => {
     const user = userEvent.setup();
     await signIn(user);

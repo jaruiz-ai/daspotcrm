@@ -26,7 +26,7 @@ curl -X POST localhost:4000/webhooks/twilio/inbound \
 ## Tests
 
 ```bash
-npm test          # 78 API tests + 9 end-to-end UI tests
+npm test          # 134 API tests + 9 end-to-end UI tests
 npm run typecheck
 npm run build
 ```
@@ -61,6 +61,18 @@ with the Da Spot icon, like a native app.
 
 Record a payment with one tap on the job: **Paid by card**, **Paid cash** or **Paid Zelle** (the balance is filled in).
 The job moves to Paid, warranties are issued, and the customer gets a receipt text with their warranty numbers.
+
+## Importing past clients
+
+Warranties → Import past clients. In Google Sheets choose File → Download → Comma-separated values (.csv), then
+choose that file. Columns are matched by name (name, phone, email, vehicle or year/make/model, plate, VIN, install
+date, film, shade, warranty number, warranty end date or length, notes) and can be changed in the preview.
+
+Warranty dates: start is the install date in the sheet; end is the sheet's end date, else install date plus the
+sheet's length, else plus the film's standard term; "Lifetime" means no end date. The sheet's warranty numbers are
+kept. Dates read month-first unless the column proves day-first; the preview says which and lets you switch.
+Month ends follow the calendar (Feb 29, 2024 + 5 years = Feb 28, 2029). The import saves exactly the preview's
+dates, and importing the same file twice creates no duplicates.
 
 ## Business rules enforced
 
