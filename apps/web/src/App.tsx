@@ -144,7 +144,6 @@ function Board() {
           <h1>Pipeline</h1>
           {data && <p className="muted">{open} open {open === 1 ? 'job' : 'jobs'}{openValue ? `, ${money(openValue)} quoted before tax` : ''}</p>}
         </div>
-        <a className="btn secondary desk-only" href="#/new">New lead</a>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {!data && !error && <p className="muted">Loading the board…</p>}
