@@ -54,11 +54,12 @@ export default function App() {
   else page = <Board />;
 
   const nav = [['#/', 'Pipeline'], ['#/warranty', 'Warranties']];
-  const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/jobs') : `#${route}` === href);
+  const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/jobs')
+    : href === '#/new' ? route === '/new' : `#${route}` === href);
   return (
     <>
       <header className="topbar">
-        <div className="brand">Da Spot 214<span>CRM</span></div>
+        <a className="brand" href="#/">Da Spot 214<span>CRM</span></a>
         <nav className="nav" aria-label="Main">
           {nav.map(([href, label]) => <a key={href} href={href} aria-current={active(href) ? 'page' : undefined}>{label}</a>)}
         </nav>
@@ -66,6 +67,21 @@ export default function App() {
         <a className="btn new-btn" href="#/new">New lead</a>
       </header>
       <main>{page}</main>
+      {/* Phones: thumb-reach navigation. Hidden on wider screens. */}
+      <nav className="tabbar" aria-label="Main">
+        <a href="#/" aria-current={active('#/') ? 'page' : undefined}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5" /><rect x="10" y="4" width="5" height="11" rx="1.5" /><rect x="17" y="4" width="4" height="7" rx="1.5" /></svg>
+          Pipeline
+        </a>
+        <a href="#/new" className="tab-new" aria-current={active('#/new') ? 'page' : undefined}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          New lead
+        </a>
+        <a href="#/warranty" aria-current={active('#/warranty') ? 'page' : undefined}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
+          Warranties
+        </a>
+      </nav>
     </>
   );
 }
@@ -103,8 +119,19 @@ function Login({ onDone }: { onDone: () => void }) {
 }
 
 /* ---------- pipeline board ---------- */
+const STAGE_KEY = 'daspot.boardStage';
+
 function Board() {
   const { data, error } = useLoad(() => api<Record<string, any[]>>('/pipeline'), []);
+  // Phones show one stage at a time. Remember the last one picked for this visit.
+  const [picked, setPicked] = useState<string | null>(() => {
+    try { return sessionStorage.getItem(STAGE_KEY); } catch { return null; }
+  });
+  const pick = (k: string) => {
+    setPicked(k);
+    try { sessionStorage.setItem(STAGE_KEY, k); } catch { /* private mode */ }
+  };
+  const current = picked ?? (data ? (STAGES.find((s) => (data[s.key] ?? []).length > 0)?.key ?? 'new_lead') : 'new_lead');
   const open = data ? STAGES.slice(0, 5).reduce((n, s) => n + (data[s.key]?.length ?? 0), 0) : 0;
   const openValue = data ? STAGES.slice(0, 5).reduce((n, s) => n + (data[s.key] ?? []).reduce((m, j) => m + (j.subtotal_cents || 0), 0), 0) : 0;
   return (
@@ -114,16 +141,26 @@ function Board() {
           <h1>Pipeline</h1>
           {data && <p className="muted">{open} open {open === 1 ? 'job' : 'jobs'}{openValue ? `, ${money(openValue)} quoted before tax` : ''}</p>}
         </div>
-        <a className="btn secondary" href="#/new">New lead</a>
+        <a className="btn secondary desk-only" href="#/new">New lead</a>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {!data && !error && <p className="muted">Loading the board…</p>}
+      {data && (
+        <div className="stage-tabs phone-only" role="tablist" aria-label="Stage">
+          {STAGES.map((s) => (
+            <button key={s.key} type="button" role="tab" aria-selected={current === s.key} onClick={() => pick(s.key)}>
+              <span className="tab-shade" style={{ opacity: shadeOpacity(s.shade) }} />
+              {s.label}<span className="tab-count">{(data[s.key] ?? []).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {data && (
         <div className="board">
           {STAGES.map((s) => {
             const jobs = data[s.key] ?? [];
             return (
-              <section key={s.key} className="col" aria-label={s.label}>
+              <section key={s.key} className={`col${current === s.key ? ' active' : ''}`} aria-label={s.label}>
                 <div className="col-head">
                   <div className="shade-bar" style={{ opacity: shadeOpacity(s.shade) }} title={`${s.shade}% shade`} />
                   <div className="col-title"><h2>{s.label}</h2><span className="count">{jobs.length}</span></div>
@@ -197,9 +234,9 @@ function QuickLead() {
           <fieldset>
             <legend>Customer</legend>
             <div className="fields">
-              <label>Mobile<input id="lead-mobile" value={f.mobile} onChange={set('mobile')} inputMode="tel" autoComplete="off" required placeholder="(214) 555-0123" /></label>
-              <label>First name<input id="lead-first" value={f.first_name} onChange={set('first_name')} /></label>
-              <label>Last name<input id="lead-last" value={f.last_name} onChange={set('last_name')} /></label>
+              <label>Mobile<input id="lead-mobile" type="tel" value={f.mobile} onChange={set('mobile')} inputMode="tel" autoComplete="off" required placeholder="(214) 555-0123" /></label>
+              <label>First name<input id="lead-first" value={f.first_name} onChange={set('first_name')} autoCapitalize="words" autoComplete="off" /></label>
+              <label>Last name<input id="lead-last" value={f.last_name} onChange={set('last_name')} autoCapitalize="words" autoComplete="off" /></label>
               <label>Language
                 <select id="lead-lang" value={f.language} onChange={set('language')}><option value="en">English</option><option value="es">Español</option></select>
               </label>
@@ -209,8 +246,8 @@ function QuickLead() {
             <legend>Vehicle</legend>
             <div className="fields">
               <label>Year<input id="lead-year" value={f.year} onChange={set('year')} inputMode="numeric" pattern="(19|20)\d{2}" placeholder="2024" /></label>
-              <label>Make<input id="lead-make" value={f.make} onChange={set('make')} placeholder="Toyota" /></label>
-              <label>Model<input id="lead-model" value={f.model} onChange={set('model')} placeholder="Camry" /></label>
+              <label>Make<input id="lead-make" value={f.make} onChange={set('make')} placeholder="Toyota" autoCapitalize="words" autoComplete="off" /></label>
+              <label>Model<input id="lead-model" value={f.model} onChange={set('model')} placeholder="Camry" autoCapitalize="words" autoComplete="off" /></label>
             </div>
           </fieldset>
           <div className="fields">
@@ -223,7 +260,7 @@ function QuickLead() {
           <label>Note<textarea id="lead-note" rows={3} value={f.note} onChange={set('note')} placeholder="Wants 20% all around, asked about ceramic" /></label>
           {error && <div className="error" role="alert">{error}</div>}
         </div>
-        <div className="panel-foot actions" style={{ justifyContent: 'flex-end' }}>
+        <div className="panel-foot actions form-actions">
           <a className="btn ghost" href="#/">Cancel</a>
           <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Create lead'}</button>
         </div>
@@ -281,7 +318,7 @@ function JobPage({ id }: { id: string }) {
   const src = sourceLabel(job.lead_source);
 
   return (
-    <>
+    <div className="job-page">
       <div className="job-head">
         <p className="crumb"><a href="#/">Pipeline</a> / Job #{job.number}</p>
         <div className="job-title">
@@ -292,13 +329,18 @@ function JobPage({ id }: { id: string }) {
             </div>
             <div className="sub">
               <span>{vehicle || 'Vehicle not added'}</span>
-              <a href={`sms:${job.mobile}`}>{formatPhone(job.mobile)}</a>
+              <span className="desk-only">{formatPhone(job.mobile)}</span>
               {job.language === 'es' && <span>Español</span>}
               {src && <span>From {src}</span>}
               {job.is_warranty_redo && <span>Warranty re-do, no charge</span>}
             </div>
+            <div className="contact-buttons">
+              <a className="btn secondary sm" href={`tel:${job.mobile}`}>Call</a>
+              <a className="btn secondary sm" href={`sms:${job.mobile}`}>Text</a>
+              <span className="faint small phone-only">{formatPhone(job.mobile)}</span>
+            </div>
           </div>
-          <div className="actions">
+          <div className="actions job-actions">
             {(secondary.length > 0 || canLose) && (
               <details className="more">
                 <summary className="btn secondary">More</summary>
@@ -341,14 +383,20 @@ function JobPage({ id }: { id: string }) {
             <div className="panel-head"><h2>Services</h2></div>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Service</th><th>Film</th><th>Shade</th><th className="num">Price</th>{!locked && <th><span className="faint" style={{ position: 'absolute', left: -9999 }}>Actions</span></th>}</tr></thead>
+                <thead><tr><th>Service</th><th className="desk-only">Film</th><th className="desk-only">Shade</th><th className="num">Price</th>{!locked && <th><span className="faint" style={{ position: 'absolute', left: -9999 }}>Actions</span></th>}</tr></thead>
                 <tbody>
                   {job.line_items.length === 0 && <tr><td colSpan={5} className="empty">No services yet. Add what you're quoting below.</td></tr>}
                   {job.line_items.map((li: any) => (
                     <tr key={li.id}>
-                      <td>{SERVICES[li.service] ?? li.service}{li.qty > 1 ? ` × ${li.qty}` : ''}{li.description ? <div className="faint small">{li.description}</div> : null}</td>
-                      <td>{li.film_line ?? <span className="faint">None</span>}</td>
-                      <td>{li.shade_vlt ? `${li.shade_vlt}%` : <span className="faint">None</span>}</td>
+                      <td>
+                        {SERVICES[li.service] ?? li.service}{li.qty > 1 ? ` × ${li.qty}` : ''}
+                        {(li.film_line || li.shade_vlt) && (
+                          <div className="faint small phone-only">{[li.film_line, li.shade_vlt ? `${li.shade_vlt}%` : null].filter(Boolean).join(', ')}</div>
+                        )}
+                        {li.description ? <div className="faint small">{li.description}</div> : null}
+                      </td>
+                      <td className="desk-only">{li.film_line ?? <span className="faint">None</span>}</td>
+                      <td className="desk-only">{li.shade_vlt ? `${li.shade_vlt}%` : <span className="faint">None</span>}</td>
                       <td className="num">{money(li.qty * li.unit_price_cents)}</td>
                       {!locked && <td className="num"><button className="btn ghost sm" disabled={busy} aria-label={`Remove ${SERVICES[li.service]}`}
                         onClick={() => run(`/jobs/${id}/line-items/${li.id}`, undefined, 'DELETE')}>Remove</button></td>}
@@ -447,7 +495,7 @@ function JobPage({ id }: { id: string }) {
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -471,7 +519,7 @@ function WaiverForm({ onSign, disabled }: { onSign: (n: string) => void; disable
   const [name, setName] = useState('');
   return (
     <form className="actions" onSubmit={(e) => { e.preventDefault(); onSign(name); }}>
-      <input id="waiver-name" style={{ maxWidth: 320, flex: 1 }} aria-label="Customer's full name" placeholder="Customer types their full name"
+      <input id="waiver-name" autoCapitalize="words" autoComplete="off" style={{ maxWidth: 320, flex: 1 }} aria-label="Customer's full name" placeholder="Customer types their full name"
         value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
       <button className="btn" disabled={disabled}>Record signature</button>
     </form>
@@ -507,7 +555,7 @@ function LineItemForm({ films, onAdd, disabled }: { films: any[]; onAdd: (b: obj
           {[80, 70, 50, 40, 35, 20, 15, 5].map((s) => <option key={s} value={s}>{s}%</option>)}
         </select>
       </label>
-      <label>Price ($)<input id="li-price" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" placeholder="0.00" /></label>
+      <label>Price ($)<input id="li-price" type="text" enterKeyHint="done" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" placeholder="0.00" /></label>
       <button className="btn secondary" disabled={disabled}>Add service</button>
     </form>
   );
@@ -544,7 +592,7 @@ function PaymentForm({ balance, onPay, disabled }: { balance: number; onPay: (b:
   };
   return (
     <form className="form" style={{ gap: 12 }} onSubmit={submit}>
-      <label>Amount ($)<input id="pay-amount" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" /></label>
+      <label>Amount ($)<input id="pay-amount" type="text" enterKeyHint="done" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} inputMode="decimal" required pattern="\d+(\.\d{1,2})?" /></label>
       <div className="fields">
         <label>Type
           <select id="pay-kind" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
@@ -604,7 +652,7 @@ function WarrantyLookup() {
       </div>
       <form className="panel panel-body actions" onSubmit={search} style={{ alignItems: 'end' }}>
         <label style={{ flex: 1, minWidth: 220 }}>Name, phone, email, plate, VIN or warranty number
-          <input id="warranty-q" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off"
+          <input id="warranty-q" type="search" enterKeyHint="search" autoCapitalize="off" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off"
             placeholder="Sofia Ramirez, (214) 555-0123, or DS-1042-M1" required minLength={3} />
         </label>
         <button className="btn">Search</button>

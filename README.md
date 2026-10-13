@@ -26,7 +26,7 @@ curl -X POST localhost:4000/webhooks/twilio/inbound \
 ## Tests
 
 ```bash
-npm test          # 69 API tests + 6 end-to-end UI tests
+npm test          # 69 API tests + 8 end-to-end UI tests
 npm run typecheck
 npm run build
 ```
@@ -50,6 +50,12 @@ so one address (for example `admin.daspot214.com`) is all you host:
 
 With `DATABASE_URL` set the server refuses to start if any of the others are missing.
 Point both the SMS and WhatsApp inbound webhooks in Twilio at `POST {PUBLIC_BASE_URL}/webhooks/twilio/inbound`.
+
+## On phones
+
+The app is built phone-first. On iPhone, open the CRM address in Safari, tap Share, then
+Add to Home Screen; on Android, use Chrome's menu and Install app. It then opens full screen
+with the Da Spot icon, like a native app.
 
 ## Business rules enforced
 

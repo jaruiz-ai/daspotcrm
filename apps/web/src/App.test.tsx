@@ -100,7 +100,7 @@ describe('UI end to end', () => {
     expect(screen.getByText('Paid', { selector: '.pill' })).toBeTruthy();
 
     // Warranty lookup by phone finds it.
-    await user.click(screen.getByRole('link', { name: 'Warranties' }));
+    await user.click(screen.getAllByRole('link', { name: 'Warranties' })[0]);
     await user.type(await screen.findByLabelText(/Name, phone, email, plate/), '214-555-7788');
     await user.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => expect(screen.getAllByText(/^DS-\d+-(M1|L1)$/).length).toBe(2));
@@ -139,7 +139,7 @@ describe('UI end to end', () => {
     await screen.findByRole('heading', { name: 'Pipeline' });
     globalThis.fetch = (async () => new Response('<html>502 Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } })) as typeof fetch;
     try {
-      await user.click(screen.getByRole('link', { name: 'Warranties' }));
+      await user.click(screen.getAllByRole('link', { name: 'Warranties' })[0]);
       await user.type(await screen.findByLabelText(/Name, phone, email, plate/), 'ABC1234');
       await user.click(screen.getByRole('button', { name: 'Search' }));
       const alert = await screen.findByRole('alert');
@@ -155,10 +155,35 @@ describe('UI end to end', () => {
     await signIn(user);
     await screen.findByRole('heading', { name: 'Pipeline' });
     localStorage.setItem('daspot.staffToken', 'revoked-code');
-    await user.click(screen.getByRole('link', { name: 'Warranties' }));
+    await user.click(screen.getAllByRole('link', { name: 'Warranties' })[0]);
     await user.type(await screen.findByLabelText(/Name, phone, email, plate/), 'ABC1234');
     await user.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByLabelText('Shop access code')).toBeTruthy();
+  });
+
+  it('phone board: stage tabs pick which column shows, and the choice sticks', async () => {
+    const user = userEvent.setup();
+    sessionStorage.clear();
+    await signIn(user);
+    const tabs = await screen.findByRole('tablist', { name: 'Stage' });
+    const paidTab = within(tabs).getByRole('tab', { name: /Paid/ });
+    await user.click(paidTab);
+    expect(paidTab.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Paid' }).className).toContain('active');
+    expect(screen.getByRole('region', { name: 'New lead' }).className).not.toContain('active');
+    expect(sessionStorage.getItem('daspot.boardStage')).toBe('paid');
+    sessionStorage.clear();
+  });
+
+  it('phone job page: Call and Text dial the customer', async () => {
+    const user = userEvent.setup();
+    const lead = await (await fetch('/api/leads', { method: 'POST',
+      headers: { authorization: 'Bearer ui-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ contact: { first_name: 'Dana', mobile: '2145550190' } }) })).json();
+    location.hash = `#/jobs/${lead.job.id}`;
+    await signIn(user);
+    expect((await screen.findByRole('link', { name: 'Call' })).getAttribute('href')).toBe('tel:+12145550190');
+    expect(screen.getByRole('link', { name: 'Text' }).getAttribute('href')).toBe('sms:+12145550190');
   });
 
   it('shows new leads on the board in the right column', async () => {
