@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { createMemoryDb, createPgDb, migrate } from './db/index.js';
 import { FakeSender, TwilioSender, type MessageSender } from './lib/messaging.js';
@@ -44,6 +46,8 @@ const app = createApp({
     staffToken: env.STAFF_API_TOKEN ?? 'dev-token', // dev-token only reachable in demo mode (checked above)
     twilioAuthToken: env.TWILIO_AUTH_TOKEN ?? '',
     publicBaseUrl: env.PUBLIC_BASE_URL ?? '',
+    // apps/api/{src|dist}/server → apps/web/dist
+    webDir: env.WEB_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist'),
   },
 });
 

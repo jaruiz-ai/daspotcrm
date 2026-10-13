@@ -52,7 +52,8 @@ async function jobDetail(q: Queryable, id: string) {
               WHERE job_id = $1 ORDER BY li.id`, [id]),
     q.query('SELECT * FROM appointments WHERE job_id = $1 ORDER BY starts_at', [id]),
     q.query('SELECT * FROM payments WHERE job_id = $1 ORDER BY paid_at', [id]),
-    q.query('SELECT * FROM warranties WHERE job_id = $1 ORDER BY number', [id]),
+    q.query(`SELECT *, (status <> 'voided' AND (expires_on IS NULL OR expires_on >= (now() AT TIME ZONE 'America/Chicago')::date)) AS in_term
+               FROM warranties WHERE job_id = $1 ORDER BY number`, [id]),
   ]);
   const totals = await jobTotals(q, id);
   return {
@@ -330,6 +331,8 @@ export function jobsRouter({ db }: Deps) {
       method: z.enum(['card', 'cash', 'zelle', 'affirm', 'afterpay', 'terms']),
       processor_fee_cents: z.number().int().min(0).default(0),
       external_ref: optText,
+    }).refine((p) => p.processor_fee_cents <= p.amount_cents, {
+      message: 'Processor fee cannot be more than the payment', path: ['processor_fee_cents'],
     }).parse(req.body);
     const out = await db.tx(async (q) => {
       const job = await lockJob(q, id);

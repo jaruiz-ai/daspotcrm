@@ -1,5 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import crypto from 'node:crypto';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { z, ZodError } from 'zod';
 import type { Db } from './db/index.js';
 import type { MessageSender } from './lib/messaging.js';
@@ -15,8 +17,10 @@ export interface AppConfig {
   staffToken: string;
   /** Twilio auth token for webhook signature checks. Empty disables checks (local dev only). */
   twilioAuthToken: string;
-  /** Public base URL Twilio calls, e.g. https://crm.daspot214.com — needed to verify signatures. */
+  /** Public base URL Twilio calls, e.g. https://admin.daspot214.com — needed to verify signatures. */
   publicBaseUrl: string;
+  /** Built web app (apps/web/dist). When set, the API also serves the staff app from the same address. */
+  webDir?: string;
 }
 
 export interface Deps {
@@ -29,6 +33,15 @@ export function createApp(deps: Deps) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
+  app.use((_req, res, next) => {
+    res.set({
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'same-origin',
+      // Only this site may frame the CRM (blocks clickjacking).
+      'Content-Security-Policy': "frame-ancestors 'self'",
+    });
+    next();
+  });
 
   app.get('/health', async (_req, res) => {
     await deps.db.query('SELECT 1');
@@ -43,6 +56,15 @@ export function createApp(deps: Deps) {
   app.use('/api', jobsRouter(deps));
   app.use('/api', warrantiesRouter(deps));
   app.use('/api', adminRouter(deps));
+
+  const webDir = deps.config.webDir;
+  if (webDir && existsSync(path.join(webDir, 'index.html'))) {
+    app.use(express.static(webDir, { index: false, maxAge: '1h' }));
+    // Any other GET outside the API is the single-page app.
+    app.get(/^\/(?!api\/|api$|webhooks\/).*/, (_req, res) => {
+      res.set('Cache-Control', 'no-cache').sendFile(path.join(webDir, 'index.html'));
+    });
+  }
 
   app.use((_req, res) => res.status(404).json({ error: { code: 'not_found', message: 'Route not found' } }));
   app.use(errorHandler);

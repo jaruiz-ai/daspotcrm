@@ -26,7 +26,7 @@ curl -X POST localhost:4000/webhooks/twilio/inbound \
 ## Tests
 
 ```bash
-npm test          # 56 API tests + 4 end-to-end UI tests
+npm test          # 62 API tests + 6 end-to-end UI tests
 npm run typecheck
 npm run build
 ```
@@ -36,7 +36,8 @@ date math behave as in production. UI tests drive the React app through a live A
 
 ## Deploy
 
-Set these, then `npm run build` and `npm -w apps/api start`:
+Set these, then `npm run build` and `npm -w apps/api start`. The API serves the staff app too,
+so one address (for example `admin.daspot214.com`) is all you host:
 
 | Variable | What it is |
 | --- | --- |

@@ -11,16 +11,33 @@ export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
 
+/** Fired when the server rejects the access code, so the app can return to sign-in. */
+export const SIGNED_OUT_EVENT = 'daspot:signed-out';
+
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method: opts.method ?? (opts.body ? 'POST' : 'GET'),
-    headers: { authorization: `Bearer ${getToken()}`, ...(opts.body ? { 'content-type': 'application/json' } : {}) },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: opts.method ?? (opts.body ? 'POST' : 'GET'),
+      headers: { authorization: `Bearer ${getToken()}`, ...(opts.body ? { 'content-type': 'application/json' } : {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    throw new ApiError(0, 'offline', "Can't reach the CRM server. Check the internet connection and try again.");
+  }
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // A proxy or host error page (HTML), not our API.
+    throw new ApiError(res.status, 'bad_gateway', `The CRM server isn't responding right now (error ${res.status}). Try again in a minute.`);
+  }
   if (!res.ok) {
-    if (res.status === 401) setToken('');
+    if (res.status === 401) {
+      setToken('');
+      dispatchEvent(new Event(SIGNED_OUT_EVENT));
+    }
     throw new ApiError(res.status, data?.error?.code ?? 'error', data?.error?.message ?? `Request failed (${res.status})`);
   }
   return data as T;

@@ -4,17 +4,25 @@ import type { Deps } from '../app.js';
 import { conflict } from '../lib/errors.js';
 import { idParam, insertVehicle, logActivity, mustExist, optText, phone, vehicleInput } from './shared.js';
 
-const contactInput = z.object({
+const contactFields = {
   first_name: optText,
   last_name: optText,
   mobile: phone,
   email: z.preprocess((v) => (v === '' ? null : v), z.email().nullish()),
-  language: z.enum(['en', 'es']).default('en'),
-  preferred_channel: z.enum(['sms', 'whatsapp']).default('sms'),
+  language: z.enum(['en', 'es']),
+  preferred_channel: z.enum(['sms', 'whatsapp']),
   ig_handle: optText,
   lead_source: optText,
-  tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20),
+};
+const contactInput = z.object({
+  ...contactFields,
+  language: contactFields.language.default('en'),
+  preferred_channel: contactFields.preferred_channel.default('sms'),
+  tags: contactFields.tags.default([]),
 });
+/** Edits: no defaults, so fields the caller didn't send are left alone. */
+const contactPatch = z.object(contactFields).partial().strict();
 
 const quickLeadInput = z.object({
   contact: contactInput,
@@ -73,7 +81,7 @@ export function contactsRouter({ db }: Deps) {
   r.patch('/contacts/:id', async (req, res) => {
     const id = idParam(req.params.id, 'Contact');
     await mustExist(db, 'contacts', id, 'Contact');
-    const c = contactInput.partial().parse(req.body);
+    const c = contactPatch.parse(req.body);
     const fields = Object.entries(c).filter(([, v]) => v !== undefined);
     if (fields.length === 0) return res.json((await db.query('SELECT * FROM contacts WHERE id = $1', [id])).rows[0]);
     const sets = fields.map(([k], i) => `${k} = $${i + 2}`).join(', ');
@@ -125,7 +133,18 @@ export function contactsRouter({ db }: Deps) {
            c.ig_handle ?? null, input.lead_source ?? c.lead_source ?? null, c.tags],
         )).rows[0];
       }
-      const vehicle = input.vehicle ? await insertVehicle(q, contact.id, input.vehicle) : null;
+      let vehicle = null;
+      if (input.vehicle) {
+        const v = input.vehicle;
+        // A returning customer's car is reused when year, make and model match what's on file.
+        const same = reused && (v.make || v.model) ? (await q.query(
+          `SELECT * FROM vehicles WHERE contact_id = $1
+              AND lower(coalesce(make,'')) = lower(coalesce($2,'')) AND lower(coalesce(model,'')) = lower(coalesce($3,''))
+              AND (year IS NOT DISTINCT FROM $4 OR $4::int IS NULL)
+            ORDER BY created_at LIMIT 1`,
+          [contact.id, v.make ?? null, v.model ?? null, v.year ?? null])).rows[0] : null;
+        vehicle = same ?? await insertVehicle(q, contact.id, v);
+      }
       const job = (await q.query(
         `INSERT INTO jobs (contact_id, vehicle_id, lead_source) VALUES ($1,$2,$3) RETURNING *`,
         [contact.id, vehicle?.id ?? null, input.lead_source ?? contact.lead_source ?? null],

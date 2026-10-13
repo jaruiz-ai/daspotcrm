@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { api, ApiError, getToken, setToken, money, STAGES, SERVICES, vehicleName, personName, formatPhone } from './api';
+import { api, ApiError, getToken, setToken, SIGNED_OUT_EVENT, money, STAGES, SERVICES, vehicleName, personName, formatPhone } from './api';
 
 /* ---------- tiny hash router ---------- */
 function useRoute() {
@@ -39,6 +39,11 @@ const sourceLabel = (s?: string | null) => (s ? SOURCE_LABEL[s] ?? s : null);
 export default function App() {
   const [authed, setAuthed] = useState(!!getToken());
   const route = useRoute();
+  useEffect(() => {
+    const out = () => setAuthed(false);
+    addEventListener(SIGNED_OUT_EVENT, out);
+    return () => removeEventListener(SIGNED_OUT_EVENT, out);
+  }, []);
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
 
   let page: ReactNode;
@@ -401,9 +406,13 @@ function JobPage({ id }: { id: string }) {
                 <span className="label">Total</span><span className="grand">{money(job.totals.total_cents)}</span>
                 <span className="label">Paid</span><span>{money(job.totals.paid_cents)}</span>
               </div>
-              <div className={`balance${job.totals.balance_cents <= 0 && job.totals.total_cents > 0 ? ' zero' : ''}`}>
-                <span>Balance</span><span>{money(job.totals.balance_cents)}</span>
-              </div>
+              {job.stage === 'paid' && job.totals.balance_cents > 0 ? (
+                <div className="balance"><span>Refunded after payment</span><span>{money(job.totals.balance_cents)}</span></div>
+              ) : (
+                <div className={`balance${job.totals.balance_cents <= 0 && job.totals.total_cents > 0 ? ' zero' : ''}`}>
+                  <span>Balance</span><span>{money(job.totals.balance_cents)}</span>
+                </div>
+              )}
             </div>
           </section>
           <section className="panel">

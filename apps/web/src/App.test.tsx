@@ -65,6 +65,7 @@ describe('UI end to end', () => {
     expect(screen.getByText('2023 Tesla Model Y')).toBeTruthy();
 
     // Quote: 20% front sides triggers the Texas waiver warning.
+    await screen.findByRole('option', { name: 'Nano Ceramic' });
     await user.selectOptions(screen.getByLabelText('Film'), 'Nano Ceramic');
     await user.selectOptions(screen.getByLabelText('Shade'), '20');
     await user.type(screen.getByLabelText('Price ($)'), '450');
@@ -122,6 +123,35 @@ describe('UI end to end', () => {
     expect(amount.value).toBe('9999');
     await user.click(screen.getByRole('button', { name: 'Record payment' }));
     expect((await screen.findByRole('alert')).textContent).toMatch(/exceeds the balance/);
+  });
+
+  it('BUG 13: a server outage shows a readable message, not a JSON parse error', async () => {
+    const user = userEvent.setup();
+    const ok = globalThis.fetch;
+    await signIn(user);
+    await screen.findByRole('heading', { name: 'Pipeline' });
+    globalThis.fetch = (async () => new Response('<html>502 Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+    try {
+      await user.click(screen.getByRole('link', { name: 'Warranties' }));
+      await user.type(await screen.findByLabelText(/Phone, plate, VIN/), 'ABC1234');
+      await user.click(screen.getByRole('button', { name: 'Search' }));
+      const alert = await screen.findByRole('alert');
+      expect(alert.textContent).toMatch(/server/i);
+      expect(alert.textContent).not.toMatch(/JSON|Unexpected token/);
+    } finally {
+      globalThis.fetch = ok;
+    }
+  });
+
+  it('BUG 14: when the access code stops working, staff are sent back to sign in', async () => {
+    const user = userEvent.setup();
+    await signIn(user);
+    await screen.findByRole('heading', { name: 'Pipeline' });
+    localStorage.setItem('daspot.staffToken', 'revoked-code');
+    await user.click(screen.getByRole('link', { name: 'Warranties' }));
+    await user.type(await screen.findByLabelText(/Phone, plate, VIN/), 'ABC1234');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByLabelText('Shop access code')).toBeTruthy();
   });
 
   it('shows new leads on the board in the right column', async () => {
