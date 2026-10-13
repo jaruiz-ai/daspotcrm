@@ -26,7 +26,7 @@ curl -X POST localhost:4000/webhooks/twilio/inbound \
 ## Tests
 
 ```bash
-npm test          # 69 API tests + 8 end-to-end UI tests
+npm test          # 78 API tests + 9 end-to-end UI tests
 npm run typecheck
 npm run build
 ```
@@ -56,6 +56,17 @@ Point both the SMS and WhatsApp inbound webhooks in Twilio at `POST {PUBLIC_BASE
 The app is built phone-first. On iPhone, open the CRM address in Safari, tap Share, then
 Add to Home Screen; on Android, use Chrome's menu and Install app. It then opens full screen
 with the Da Spot icon, like a native app.
+
+## Payments (Chase card reader)
+
+Chase's reader has no connection for outside software, so card payments are recorded with one tap:
+run the card on the Chase reader, then tap **Paid by card** on the job. The job moves to Paid, warranties are
+issued, and the customer gets a receipt text with their warranty numbers.
+
+Once a week, download the card transactions CSV from Chase Business Online and choose it on the **Payments**
+screen. The CRM matches each Chase sale to a recorded payment (by transaction id, then amount and day, then time)
+and lists sales missing from the CRM, with a one-tap Record on the job whose balance matches. Tips are left out
+of the match. Nothing changes until you tap Record.
 
 ## Business rules enforced
 

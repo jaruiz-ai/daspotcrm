@@ -7,6 +7,7 @@ import { jobTotals } from '../lib/money.js';
 import { canMove, needsFrontSideWaiver, STAGES, type Stage } from '../lib/stages.js';
 import { issueWarranties } from '../lib/warranty.js';
 import { recordRevShare } from '../lib/revshare.js';
+import { sendPaidReceipt } from '../lib/receipt.js';
 import { assert, idParam, logActivity, optText } from './shared.js';
 
 const SERVICES = ['full_tint', 'front_two', 'windshield', 'sun_strip', 'pano_roof', 'removal', 'wrap',
@@ -96,7 +97,11 @@ async function afterPriceChange(q: Queryable, jobId: string) {
   await settleIfPaid(q, jobId);
 }
 
-export function jobsRouter({ db }: Deps) {
+export function jobsRouter({ db, sender }: Deps) {
+  /** After a change commits: if it just made the job Paid, text the customer their receipt. */
+  const receiptIfNewlyPaid = async (before: string, after: { id: string; stage: string }) => {
+    if (before !== 'paid' && after.stage === 'paid') await sendPaidReceipt({ db, sender }, after.id);
+  };
   const r = Router();
 
   r.get('/pipeline', async (_req, res) => {
@@ -151,8 +156,10 @@ export function jobsRouter({ db }: Deps) {
       lead_source: optText,
       campaign: optText,
     }).strict().parse(req.body);
+    let before = '';
     const out = await db.tx(async (q) => {
       const job = await lockJob(q, id);
+      before = job.stage;
       assert(OPEN_FOR_EDIT.includes(job.stage), 'job_locked', 'Paid or lost jobs cannot be edited');
       const next = { ...job, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) };
       assert(!(next.vehicle_id && next.property_id), 'subject_conflict', 'A job is for a vehicle or a property, not both');
@@ -169,6 +176,7 @@ export function jobsRouter({ db }: Deps) {
       if (b.discount_cents !== undefined || b.tax_rate_bp !== undefined) await afterPriceChange(q, id);
       return jobDetail(q, id);
     });
+    await receiptIfNewlyPaid(before, out);
     res.json(out);
   });
 
@@ -198,8 +206,10 @@ export function jobsRouter({ db }: Deps) {
   r.delete('/jobs/:id/line-items/:lineId', async (req, res) => {
     const id = idParam(req.params.id, 'Job');
     const lineId = idParam(req.params.lineId, 'Line item');
+    let before = '';
     const out = await db.tx(async (q) => {
       const job = await lockJob(q, id);
+      before = job.stage;
       assert(OPEN_FOR_EDIT.includes(job.stage), 'job_locked', 'Paid or lost jobs cannot be edited');
       const del = await q.query('DELETE FROM job_line_items WHERE id = $1 AND job_id = $2 RETURNING id', [lineId, id]);
       if (!del.rows[0]) throw notFound('Line item');
@@ -211,6 +221,7 @@ export function jobsRouter({ db }: Deps) {
       await afterPriceChange(q, id);
       return jobDetail(q, id);
     });
+    await receiptIfNewlyPaid(before, out);
     res.json(out);
   });
 
@@ -220,8 +231,10 @@ export function jobsRouter({ db }: Deps) {
       to: z.enum(STAGES),
       lost_reason: z.enum(['price', 'went_elsewhere', 'no_response', 'illegal_shade', 'other']).optional(),
     }).parse(req.body);
+    let before = '';
     const out = await db.tx(async (q) => {
       const job = await lockJob(q, id);
+      before = job.stage;
       const from = job.stage as Stage;
       if (from === b.to) return jobDetail(q, id);
       if (!canMove(from, b.to)) {
@@ -259,6 +272,7 @@ export function jobsRouter({ db }: Deps) {
       if (b.to === 'completed') await settleIfPaid(q, id);
       return jobDetail(q, id);
     });
+    await receiptIfNewlyPaid(before, out);
     res.json(out);
   });
 
@@ -331,11 +345,15 @@ export function jobsRouter({ db }: Deps) {
       method: z.enum(['card', 'cash', 'zelle', 'affirm', 'afterpay', 'terms']),
       processor_fee_cents: z.number().int().min(0).default(0),
       external_ref: optText,
+      // When the money actually moved (e.g. a sale found on the Chase report). Defaults to now.
+      paid_at: z.iso.datetime({ offset: true }).optional(),
     }).refine((p) => p.processor_fee_cents <= p.amount_cents, {
       message: 'Processor fee cannot be more than the payment', path: ['processor_fee_cents'],
     }).parse(req.body);
+    let before = '';
     const out = await db.tx(async (q) => {
       const job = await lockJob(q, id);
+      before = job.stage;
       assert(job.stage !== 'lost' || b.kind === 'refund', 'job_lost', 'Cannot take payment on a lost job');
       const t = await jobTotals(q, id);
       if (b.kind === 'refund') {
@@ -350,16 +368,22 @@ export function jobsRouter({ db }: Deps) {
         const dup = await q.query('SELECT id FROM payments WHERE external_ref = $1', [b.external_ref]);
         if (dup.rows[0]) throw conflict('duplicate_payment', 'This payment was already recorded');
       }
+      if (b.paid_at) {
+        const at = Date.parse(b.paid_at);
+        assert(at <= Date.now() + 5 * 60_000, 'future_payment', 'Payment date cannot be in the future');
+        assert(at >= Date.now() - 400 * 864e5, 'old_payment', 'Payment date is more than a year ago');
+      }
       const pay = (await q.query(
-        `INSERT INTO payments (job_id, amount_cents, kind, method, processor_fee_cents, external_ref)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [id, b.amount_cents, b.kind, b.method, b.processor_fee_cents, b.external_ref ?? null],
+        `INSERT INTO payments (job_id, amount_cents, kind, method, processor_fee_cents, external_ref, paid_at)
+         VALUES ($1,$2,$3,$4,$5,$6, COALESCE($7::timestamptz, now())) RETURNING *`,
+        [id, b.amount_cents, b.kind, b.method, b.processor_fee_cents, b.external_ref ?? null, b.paid_at ?? null],
       )).rows[0];
       await logActivity(q, 'job', id, 'payment', { amount_cents: b.amount_cents, kind: b.kind, method: b.method });
       await recordRevShare(q, pay.id);
       await settleIfPaid(q, id);
       return jobDetail(q, id);
     });
+    await receiptIfNewlyPaid(before, out);
     res.status(201).json(out);
   });
 

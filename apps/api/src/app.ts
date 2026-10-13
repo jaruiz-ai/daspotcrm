@@ -11,6 +11,7 @@ import { jobsRouter } from './routes/jobs.js';
 import { warrantiesRouter } from './routes/warranties.js';
 import { adminRouter } from './routes/admin.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import { reconcileRouter } from './routes/reconcile.js';
 
 export interface AppConfig {
   /** Bearer token staff apps send. Required outside tests. */
@@ -51,11 +52,12 @@ export function createApp(deps: Deps) {
   // Webhooks authenticate by signature, not the staff token.
   app.use('/webhooks', express.urlencoded({ extended: false, limit: '256kb' }), webhooksRouter(deps));
 
-  app.use('/api', express.json({ limit: '1mb' }), requireStaff(deps.config.staffToken));
+  app.use('/api', express.json({ limit: '3mb' }), requireStaff(deps.config.staffToken));
   app.use('/api', contactsRouter(deps));
   app.use('/api', jobsRouter(deps));
   app.use('/api', warrantiesRouter(deps));
   app.use('/api', adminRouter(deps));
+  app.use('/api', reconcileRouter(deps));
 
   const webDir = deps.config.webDir;
   if (webDir && existsSync(path.join(webDir, 'index.html'))) {
