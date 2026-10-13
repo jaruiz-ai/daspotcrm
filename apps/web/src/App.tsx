@@ -112,7 +112,10 @@ function Login({ onDone }: { onDone: () => void }) {
         </label>
         {error && <div className="error" role="alert">{error}</div>}
         <button className="btn" type="submit">Sign in</button>
-        <p className="faint small" style={{ margin: 0 }}>Running the demo locally? The code is dev-token.</p>
+        {/* Demo hint only on a local machine, never on the live site. */}
+        {['localhost', '127.0.0.1'].includes(location.hostname) && (
+          <p className="faint small" style={{ margin: 0 }}>Running the demo locally? The code is dev-token.</p>
+        )}
       </form>
     </div>
   );
