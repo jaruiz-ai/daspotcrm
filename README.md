@@ -57,16 +57,10 @@ The app is built phone-first. On iPhone, open the CRM address in Safari, tap Sha
 Add to Home Screen; on Android, use Chrome's menu and Install app. It then opens full screen
 with the Da Spot icon, like a native app.
 
-## Payments (Chase card reader)
+## Payments
 
-Chase's reader has no connection for outside software, so card payments are recorded with one tap:
-run the card on the Chase reader, then tap **Paid by card** on the job. The job moves to Paid, warranties are
-issued, and the customer gets a receipt text with their warranty numbers.
-
-Once a week, download the card transactions CSV from Chase Business Online and choose it on the **Payments**
-screen. The CRM matches each Chase sale to a recorded payment (by transaction id, then amount and day, then time)
-and lists sales missing from the CRM, with a one-tap Record on the job whose balance matches. Tips are left out
-of the match. Nothing changes until you tap Record.
+Record a payment with one tap on the job: **Paid by card**, **Paid cash** or **Paid Zelle** (the balance is filled in).
+The job moves to Paid, warranties are issued, and the customer gets a receipt text with their warranty numbers.
 
 ## Business rules enforced
 

@@ -11,7 +11,7 @@ import { jobsRouter } from './routes/jobs.js';
 import { warrantiesRouter } from './routes/warranties.js';
 import { adminRouter } from './routes/admin.js';
 import { webhooksRouter } from './routes/webhooks.js';
-import { reconcileRouter } from './routes/reconcile.js';
+import { importsRouter } from './routes/imports.js';
 
 export interface AppConfig {
   /** Bearer token staff apps send. Required outside tests. */
@@ -57,7 +57,7 @@ export function createApp(deps: Deps) {
   app.use('/api', jobsRouter(deps));
   app.use('/api', warrantiesRouter(deps));
   app.use('/api', adminRouter(deps));
-  app.use('/api', reconcileRouter(deps));
+  app.use('/api', importsRouter(deps));
 
   const webDir = deps.config.webDir;
   if (webDir && existsSync(path.join(webDir, 'index.html'))) {

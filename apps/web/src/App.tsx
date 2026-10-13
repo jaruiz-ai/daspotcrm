@@ -51,10 +51,9 @@ export default function App() {
   if (jobMatch) page = <JobPage id={jobMatch[1]} />;
   else if (route === '/new') page = <QuickLead />;
   else if (route === '/warranty') page = <WarrantyLookup />;
-  else if (route === '/payments') page = <ChaseCheck />;
   else page = <Board />;
 
-  const nav = [['#/', 'Pipeline'], ['#/payments', 'Payments'], ['#/warranty', 'Warranties']];
+  const nav = [['#/', 'Pipeline'], ['#/warranty', 'Warranties']];
   const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/jobs')
     : href === '#/new' ? route === '/new' : `#${route}` === href);
   return (
@@ -77,10 +76,6 @@ export default function App() {
         <a href="#/new" className="tab-new" aria-current={active('#/new') ? 'page' : undefined}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
           New lead
-        </a>
-        <a href="#/payments" aria-current={active('#/payments') ? 'page' : undefined}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M3 10h18M7 15h4" /></svg>
-          Payments
         </a>
         <a href="#/warranty" aria-current={active('#/warranty') ? 'page' : undefined}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
@@ -614,7 +609,7 @@ function PaymentForm({ balance, onPay, disabled }: { balance: number; onPay: (b:
         </label>
         <label>Method
           <select id="pay-method" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
-            {[['card', 'Card (Chase)'], ['cash', 'Cash'], ['zelle', 'Zelle'], ['affirm', 'Affirm'], ['afterpay', 'Afterpay'], ['terms', 'Net terms']].map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {[['card', 'Card'], ['cash', 'Cash'], ['zelle', 'Zelle'], ['affirm', 'Affirm'], ['afterpay', 'Afterpay'], ['terms', 'Net terms']].map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </label>
       </div>
@@ -629,7 +624,6 @@ function PaymentForm({ balance, onPay, disabled }: { balance: number; onPay: (b:
       <button className="btn pay-card" disabled={disabled} onClick={() => payFull('card')}>
         <span>Paid by card</span><span className="pay-amount">{money(balance)}</span>
       </button>
-      <p className="faint small" style={{ margin: 0 }}>Run the card on the Chase reader first, then tap.</p>
       <div className="pay-row">
         <button className="btn secondary" disabled={disabled} onClick={() => payFull('cash')}>Paid cash</button>
         <button className="btn secondary" disabled={disabled} onClick={() => payFull('zelle')}>Paid Zelle</button>
@@ -695,137 +689,6 @@ function WarrantyLookup() {
             {results.map((w) => <a key={w.id} href={`#/jobs/${w.job_id}`} style={{ color: 'inherit', textDecoration: 'none' }}><WarrantyRow w={w} showCustomer /></a>)}
           </div>
         </section>
-      )}
-    </div>
-  );
-}
-
-/* ---------- Chase report check ---------- */
-const dayLabel = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-const timeLabel = (min: number | null) => (min == null ? '' : new Date(2000, 0, 1, Math.floor(min / 60), min % 60).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
-
-function ChaseCheck() {
-  const [result, setResult] = useState<any | null>(null);
-  const [csv, setCsv] = useState<string | null>(null);
-  const [fileName, setFileName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [recorded, setRecorded] = useState<Record<number, string>>({});
-
-  const check = async (text: string) => {
-    setBusy(true); setError(null);
-    try { setResult(await api('/reconcile/chase', { body: { csv: text } })); }
-    catch (err) { setError((err as Error).message); setResult(null); }
-    finally { setBusy(false); }
-  };
-  const onFile = async (e: { target: HTMLInputElement }) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name); setRecorded({});
-    const text = await file.text();
-    setCsv(text);
-    await check(text);
-  };
-  const record = async (row: any, job: any) => {
-    setBusy(true); setError(null);
-    try {
-      const [y, m, d] = row.day.split('-').map(Number);
-      const mins = row.minutes ?? 12 * 60;
-      const paidAt = new Date(y, m - 1, d, Math.floor(mins / 60), mins % 60);
-      await api(`/jobs/${job.id}/payments`, { body: {
-        amount_cents: row.amount_cents, kind: row.amount_cents === job.balance_cents ? 'balance' : 'deposit', method: 'card',
-        external_ref: row.transaction_id ? `chase:${row.transaction_id}` : undefined,
-        paid_at: (paidAt.getTime() > Date.now() ? new Date() : paidAt).toISOString(),
-      } });
-      setRecorded((r) => ({ ...r, [row.line]: `Recorded on job #${job.number}` }));
-      if (csv) setResult(await api('/reconcile/chase', { body: { csv } }));
-    } catch (err) { setError((err as Error).message); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div style={{ maxWidth: 820 }}>
-      <div className="page-head">
-        <div>
-          <h1>Payments</h1>
-          <p className="muted">Check the Chase card report against the CRM, so no card sale is missed.</p>
-        </div>
-      </div>
-      <section className="panel">
-        <div className="panel-body form" style={{ gap: 12 }}>
-          <ol className="steps small muted">
-            <li>In Chase Business Online or the Chase app, download your card transactions as a CSV file. A week at a time works well.</li>
-            <li>Choose the file below. Nothing is changed until you tap Record.</li>
-          </ol>
-          <label className="file-pick">
-            <input id="chase-file" type="file" accept=".csv,text/csv" onChange={onFile} />
-            <span className="btn">{fileName ? 'Choose a different file' : 'Choose Chase report'}</span>
-            {fileName && <span className="small muted">{fileName}</span>}
-          </label>
-          {busy && <p className="muted small" style={{ margin: 0 }}>Checking…</p>}
-          {error && <div className="error" role="alert">{error}</div>}
-        </div>
-      </section>
-
-      {result && (
-        <div className="stack" style={{ marginTop: 16, gap: 16 }}>
-          <div className="recon-summary" aria-label="Summary">
-            <div><span className="big">{result.counts.matched}</span><span>matched</span></div>
-            <div className={result.counts.missing ? 'warn' : ''}><span className="big">{result.counts.missing}</span><span>on Chase, not in CRM</span></div>
-            <div className={result.counts.extra ? 'warn' : ''}><span className="big">{result.counts.extra}</span><span>in CRM, not on Chase</span></div>
-          </div>
-          <p className="muted small" style={{ margin: 0 }}>{result.range.from === result.range.to ? dayLabel(result.range.from) : `${dayLabel(result.range.from)} to ${dayLabel(result.range.to)}`}, {result.counts.sales} card {result.counts.sales === 1 ? 'sale' : 'sales'}{result.counts.skipped ? `, ${result.counts.skipped} declined or unreadable rows skipped` : ''}.</p>
-
-          {result.missing.length === 0 && result.extra.length === 0 && (
-            <div className="balance zero"><span>Everything matches.</span><span>All set</span></div>
-          )}
-
-          {result.missing.length > 0 && (
-            <section className="panel">
-              <div className="panel-head"><h2>On Chase, not in the CRM</h2></div>
-              <div className="list">
-                {result.missing.map((row: any) => (
-                  <div key={row.line} className="recon-row">
-                    <div className="recon-top">
-                      <span className="recon-amt">{row.kind === 'refund' ? '−' : ''}{money(row.amount_cents)}</span>
-                      <span className="faint small">{dayLabel(row.day)} {timeLabel(row.minutes)}{row.card ? `, card ending ${row.card}` : ''}{row.tip_cents ? `, plus ${money(row.tip_cents)} tip` : ''}</span>
-                    </div>
-                    {recorded[row.line] ? <span className="pill good">{recorded[row.line]}</span>
-                      : row.kind === 'refund' ? <p className="small muted" style={{ margin: 0 }}>A refund. Open the job and record the refund there.</p>
-                      : row.suggestions.length === 0 ? <p className="small muted" style={{ margin: 0 }}>No open job has this balance. Open the job and record it there.</p>
-                      : (
-                        <div className="recon-picks">
-                          {row.suggestions.map((j: any) => (
-                            <button key={j.id} className="btn secondary" disabled={busy} onClick={() => record(row, j)}>
-                              Record on #{j.number}, {personName(j)}{j.vehicle ? `, ${j.vehicle}` : ''}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {result.extra.length > 0 && (
-            <section className="panel">
-              <div className="panel-head"><h2>In the CRM, not on Chase</h2></div>
-              <p className="small muted" style={{ margin: 0, padding: '12px 16px 0' }}>Recorded as card, but Chase has no matching sale. It may have been cash, Zelle, or a different amount.</p>
-              <div className="list">
-                {result.extra.map((p: any) => (
-                  <a key={p.id} className="list-row" href={`#/jobs/${p.job_id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                    <div className="main">
-                      <span>Job #{p.number}, {personName(p)}</span>
-                      <span className="faint small">{dayLabel(p.day)} {timeLabel(p.minutes)}</span>
-                    </div>
-                    <span style={{ fontWeight: 600 }}>{money(p.amount_cents)}</span>
-                  </a>
-                ))}
-              </div>
-            </section>
-          )}
-        </div>
       )}
     </div>
   );

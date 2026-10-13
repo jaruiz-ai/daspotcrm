@@ -105,59 +105,7 @@ describe('CSV helpers', () => {
   });
 });
 
-describe('Chase report check', () => {
-  // Today in Dallas, as Chase would print it.
-  const today = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-
-  it('matches recorded card payments, flags what is missing or extra, and ignores declines and tips', async () => {
-    const recorded = await completedJob({ first_name: 'Matched' }, 41000);          // $443.83, recorded in CRM
-    await payFull(recorded.job);
-    const tipped = await completedJob({ first_name: 'Tipped' }, 20000);             // $216.50 paid + $20 tip on Chase
-    await payFull(tipped.job);
-    const forgotten = await completedJob({ first_name: 'Forgot' }, 30000);          // $324.75 on Chase, never recorded
-    const notOnChase = await completedJob({ first_name: 'Extra' }, 11000);          // recorded as card, not on Chase
-    await payFull(notOnChase.job);
-
-    const csv = [
-      'Chase Business Transactions',
-      'Generated for DA SPOT 214 LLC',
-      '',
-      'Transaction Date,Time,Transaction Type,Status,Card Number,Amount,Tip Amount,Transaction ID',
-      `${today},9:14 AM,Sale,Approved,XXXXXXXXXXXX4242,"$443.83",$0.00,CH-1`,
-      `${today},10:02 AM,Sale,Approved,XXXXXXXXXXXX1111,"$236.50",$20.00,CH-2`,
-      `${today},11:30 AM,Sale,Approved,XXXXXXXXXXXX9999,"$324.75",$0.00,CH-3`,
-      `${today},11:45 AM,Sale,Declined,XXXXXXXXXXXX9999,"$324.75",$0.00,CH-4`,
-      `Total,,,,,"$1,005.08",$20.00,`,
-    ].join('\r\n');
-
-    const r = await ctx.api.post('/api/reconcile/chase', { csv });
-    expect(r.status).toBe(200);
-    expect(r.body.columns).toMatchObject({ date: 'Transaction Date', time: 'Time', amount: 'Amount', tip: 'Tip Amount', id: 'Transaction ID' });
-    expect(r.body.counts).toMatchObject({ sales: 3, matched: 2, missing: 1, skipped: 1 });
-    expect(r.body.matched.map((m: any) => m.payment.first_name).sort()).toEqual(['Matched', 'Tipped']);
-    const miss = r.body.missing[0];
-    expect(miss).toMatchObject({ amount_cents: 32475, transaction_id: 'CH-3', card: '9999' });
-    expect(miss.suggestions.map((s: any) => s.id)).toContain(forgotten.job.id);
-    expect(r.body.extra.map((p: any) => p.job_id)).toContain(notOnChase.job.id);
-
-    // Record the missing sale from the report; the next check matches it by transaction id.
-    const rec = await ctx.api.post(`/api/jobs/${forgotten.job.id}/payments`, {
-      amount_cents: 32475, kind: 'balance', method: 'card', external_ref: 'chase:CH-3', paid_at: new Date().toISOString() });
-    expect(rec.body.stage).toBe('paid');
-    const again = (await ctx.api.post('/api/reconcile/chase', { csv })).body;
-    expect(again.counts.missing).toBe(0);
-    // Recording it twice is blocked.
-    const dup = await ctx.api.post(`/api/jobs/${forgotten.job.id}/payments`, {
-      amount_cents: 100, kind: 'deposit', method: 'card', external_ref: 'chase:CH-3' });
-    expect(dup.status).toBeGreaterThanOrEqual(400);
-  });
-
-  it('explains clearly when the file is not a Chase transactions report', async () => {
-    const r = await ctx.api.post('/api/reconcile/chase', { csv: 'name,phone\nAna,2145550100' });
-    expect(r.status).toBe(400);
-    expect(r.body.error.message).toMatch(/date and amount columns/);
-  });
-
+describe('payment dates', () => {
   it('rejects payment dates in the future', async () => {
     const { job } = await completedJob({}, 10000);
     const r = await ctx.api.post(`/api/jobs/${job.id}/payments`, {

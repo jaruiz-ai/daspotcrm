@@ -91,7 +91,7 @@ describe('UI end to end', () => {
     await user.click(screen.getByRole('button', { name: 'Mark completed' }));
     await screen.findByRole('button', { name: 'Reopen install' });
 
-    // One tap after running the card on the Chase reader: job settles to Paid and warranties appear.
+    // One tap records the full balance: job settles to Paid and warranties appear.
     const payCard = screen.getByRole('button', { name: /Paid by card/ });
     expect(payCard.textContent).toContain('$487.13'); // 450.00 + 8.25% tax
     await user.click(payCard);
@@ -185,26 +185,6 @@ describe('UI end to end', () => {
     await signIn(user);
     expect((await screen.findByRole('link', { name: 'Call' })).getAttribute('href')).toBe('tel:+12145550190');
     expect(screen.getByRole('link', { name: 'Text' }).getAttribute('href')).toBe('sms:+12145550190');
-  });
-
-  it('Chase check: upload a report, see what is missing, record it in one tap', async () => {
-    const user = userEvent.setup();
-    const H = { authorization: 'Bearer ui-token', 'content-type': 'application/json' };
-    const lead = await (await fetch('/api/leads', { method: 'POST', headers: H,
-      body: JSON.stringify({ contact: { first_name: 'Nina', mobile: '2145550177' }, vehicle: { make: 'Mazda', model: 'CX-5' } }) })).json();
-    await fetch(`/api/jobs/${lead.job.id}/line-items`, { method: 'POST', headers: H,
-      body: JSON.stringify({ service: 'full_tint', unit_price_cents: 30000 }) });
-    const today = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    const csv = `Transaction Date,Time,Status,Amount,Transaction ID\n${today},9:30 AM,Approved,$324.75,UI-77\n`;
-
-    location.hash = '#/payments';
-    await signIn(user);
-    await user.upload(await screen.findByLabelText(/Choose Chase report/), new File([csv], 'chase.csv', { type: 'text/csv' }));
-    const pick = await screen.findByRole('button', { name: /Record on #\d+, Nina, Mazda CX-5/ });
-    await user.click(pick);
-    expect(await screen.findByText(/Recorded on job #\d+/)).toBeTruthy();
-    // Re-checked after recording: nothing on Chase is missing from the CRM any more.
-    await waitFor(() => expect(screen.getByLabelText('Summary').textContent).toContain('0on Chase, not in CRM'));
   });
 
   it('shows new leads on the board in the right column', async () => {

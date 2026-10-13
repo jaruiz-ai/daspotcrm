@@ -345,7 +345,7 @@ export function jobsRouter({ db, sender }: Deps) {
       method: z.enum(['card', 'cash', 'zelle', 'affirm', 'afterpay', 'terms']),
       processor_fee_cents: z.number().int().min(0).default(0),
       external_ref: optText,
-      // When the money actually moved (e.g. a sale found on the Chase report). Defaults to now.
+      // When the money actually moved, if not now (e.g. entering an older payment). Defaults to now.
       paid_at: z.iso.datetime({ offset: true }).optional(),
     }).refine((p) => p.processor_fee_cents <= p.amount_cents, {
       message: 'Processor fee cannot be more than the payment', path: ['processor_fee_cents'],
