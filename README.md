@@ -26,7 +26,7 @@ curl -X POST localhost:4000/webhooks/twilio/inbound \
 ## Tests
 
 ```bash
-npm test          # 62 API tests + 6 end-to-end UI tests
+npm test          # 69 API tests + 6 end-to-end UI tests
 npm run typecheck
 npm run build
 ```

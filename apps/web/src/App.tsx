@@ -571,7 +571,12 @@ function WarrantyRow({ w, showCustomer = false }: { w: any; showCustomer?: boole
       <div className="main">
         <span className="warranty-num">{w.number}</span>
         <span>{w.coverage === 'labor' ? 'Shop labor' : `${w.film_brand} ${w.film_line}`}, {w.expires_on ? `until ${w.expires_on}` : 'lifetime'}</span>
-        {showCustomer && <span className="faint small">{personName(w)}, {vehicleName(w)}{w.plate ? `, plate ${w.plate}` : ''}{w.claim_count ? `, ${w.claim_count} claim(s)` : ''}</span>}
+        {showCustomer && (
+          <span className="faint small">
+            {[personName(w), formatPhone(w.mobile), w.email, vehicleName(w), w.plate ? `plate ${w.plate}` : null,
+              w.claim_count ? `${w.claim_count} claim${w.claim_count === 1 ? '' : 's'}` : null].filter(Boolean).join(', ')}
+          </span>
+        )}
       </div>
       {status}
     </div>
@@ -594,12 +599,13 @@ function WarrantyLookup() {
       <div className="page-head">
         <div>
           <h1>Warranties</h1>
-          <p className="muted">Find a customer's coverage by phone, plate, VIN or warranty number.</p>
+          <p className="muted">Find a customer's coverage by name, phone, email, plate, VIN or warranty number.</p>
         </div>
       </div>
       <form className="panel panel-body actions" onSubmit={search} style={{ alignItems: 'end' }}>
-        <label style={{ flex: 1, minWidth: 220 }}>Phone, plate, VIN or warranty number
-          <input id="warranty-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="(214) 555-0123 or DS-1042-M1" required minLength={3} />
+        <label style={{ flex: 1, minWidth: 220 }}>Name, phone, email, plate, VIN or warranty number
+          <input id="warranty-q" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off"
+            placeholder="Sofia Ramirez, (214) 555-0123, or DS-1042-M1" required minLength={3} />
         </label>
         <button className="btn">Search</button>
       </form>
@@ -607,7 +613,7 @@ function WarrantyLookup() {
       {results && (
         <section className="panel" style={{ marginTop: 16 }}>
           <div className="panel-head"><h2>{results.length} {results.length === 1 ? 'result' : 'results'}</h2></div>
-          {results.length === 0 && <p className="empty" style={{ margin: 0 }}>No warranty matches "{q}". Check the plate for typos, or search by phone.</p>}
+          {results.length === 0 && <p className="empty" style={{ margin: 0 }}>No warranty matches "{q}". Check the spelling, or try their phone number. Email searches need the full address.</p>}
           <div className="list">
             {results.map((w) => <a key={w.id} href={`#/jobs/${w.job_id}`} style={{ color: 'inherit', textDecoration: 'none' }}><WarrantyRow w={w} showCustomer /></a>)}
           </div>

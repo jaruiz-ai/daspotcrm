@@ -5,17 +5,28 @@ import { conflict, notFound } from '../lib/errors.js';
 import { toE164 } from '../lib/phone.js';
 import { assert, idParam, logActivity, optText } from './shared.js';
 
+/** Lowercase and drop accents so "Ramirez" finds "Ramírez" (and the other way round). */
+const ACCENTED = 'áàâäãåéèêëíìîïóòôöõúùûüñçý';
+const PLAIN = 'aaaaaaeeeeiiiiooooouuuuncy';
+const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+const FOLD_SQL = (expr: string) => `translate(lower(${expr}), '${ACCENTED}', '${PLAIN}')`;
+
 export function warrantiesRouter({ db }: Deps) {
   const r = Router();
 
-  /** Find warranties by phone, plate, VIN or warranty number. */
+  /** Find warranties by phone, plate, VIN, warranty number, customer name or email. */
   r.get('/warranties/lookup', async (req, res) => {
-    const raw = String(req.query.q ?? '').trim();
+    const raw = String(req.query.q ?? '').trim().replace(/\s+/g, ' ');
     assert(raw.length >= 3, 'query_too_short', 'Enter at least 3 characters');
     const upper = raw.toUpperCase().replace(/\s+/g, '');
     const mobile = toE164(raw);
+    // Email: exact match, any case. Name: only for text with no digits, so a plate never matches a name.
+    const email = raw.includes('@') ? raw.toLowerCase() : null;
+    const name = !email && /^[\p{L}][\p{L} .'-]*$/u.test(raw)
+      ? '%' + fold(raw).replace(/[%_\\]/g, (m) => '\\' + m) + '%'
+      : null;
     const { rows } = await db.query(
-      `SELECT w.*, c.first_name, c.last_name, c.mobile, v.year, v.make, v.model, v.plate, v.vin,
+      `SELECT w.*, c.first_name, c.last_name, c.mobile, c.email, v.year, v.make, v.model, v.plate, v.vin,
               (w.expires_on IS NULL OR w.expires_on >= (now() AT TIME ZONE 'America/Chicago')::date) AS in_term,
               (SELECT COUNT(*)::int FROM warranty_claims wc WHERE wc.warranty_id = w.id) AS claim_count
          FROM warranties w
@@ -25,8 +36,13 @@ export function warrantiesRouter({ db }: Deps) {
            OR ($2::text IS NOT NULL AND c.mobile = $2)
            OR upper(replace(v.plate, ' ', '')) = $1
            OR upper(v.vin) = $1
-        ORDER BY w.starts_on DESC, w.number`,
-      [upper, mobile],
+           OR ($3::text IS NOT NULL AND lower(c.email) = $3)
+           OR ($4::text IS NOT NULL AND (
+                ${FOLD_SQL("trim(coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, ''))")} LIKE $4
+             OR ${FOLD_SQL("trim(coalesce(c.last_name, '') || ' ' || coalesce(c.first_name, ''))")} LIKE $4))
+        ORDER BY c.last_name NULLS LAST, c.first_name, w.starts_on DESC, w.number
+        LIMIT 100`,
+      [upper, mobile, email, name],
     );
     res.json(rows);
   });

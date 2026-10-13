@@ -101,9 +101,16 @@ describe('UI end to end', () => {
 
     // Warranty lookup by phone finds it.
     await user.click(screen.getByRole('link', { name: 'Warranties' }));
-    await user.type(await screen.findByLabelText(/Phone, plate, VIN/), '214-555-7788');
+    await user.type(await screen.findByLabelText(/Name, phone, email, plate/), '214-555-7788');
     await user.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => expect(screen.getAllByText(/^DS-\d+-(M1|L1)$/).length).toBe(2));
+
+    // ...and by name, with the phone shown so staff can confirm it's the right Marcus.
+    const box = screen.getByLabelText(/Name, phone, email, plate/);
+    await user.clear(box);
+    await user.type(box, 'marcus');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getAllByText(/Marcus, \(214\) 555-7788/).length).toBe(2));
   });
 
   it('shows the API error instead of crashing on overpayment', async () => {
@@ -133,7 +140,7 @@ describe('UI end to end', () => {
     globalThis.fetch = (async () => new Response('<html>502 Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } })) as typeof fetch;
     try {
       await user.click(screen.getByRole('link', { name: 'Warranties' }));
-      await user.type(await screen.findByLabelText(/Phone, plate, VIN/), 'ABC1234');
+      await user.type(await screen.findByLabelText(/Name, phone, email, plate/), 'ABC1234');
       await user.click(screen.getByRole('button', { name: 'Search' }));
       const alert = await screen.findByRole('alert');
       expect(alert.textContent).toMatch(/server/i);
@@ -149,7 +156,7 @@ describe('UI end to end', () => {
     await screen.findByRole('heading', { name: 'Pipeline' });
     localStorage.setItem('daspot.staffToken', 'revoked-code');
     await user.click(screen.getByRole('link', { name: 'Warranties' }));
-    await user.type(await screen.findByLabelText(/Phone, plate, VIN/), 'ABC1234');
+    await user.type(await screen.findByLabelText(/Name, phone, email, plate/), 'ABC1234');
     await user.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByLabelText('Shop access code')).toBeTruthy();
   });
