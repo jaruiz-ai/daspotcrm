@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "outputDirectory": "apps/web/dist",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "{apps/api/dist/**,node_modules/@electric-sql/pglite/dist/**}"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index?__p=api/:path*" },
+    { "source": "/webhooks/:path*", "destination": "/api/index?__p=webhooks/:path*" },
+    { "source": "/health", "destination": "/api/index?__p=health" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "same-origin" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'self'" }
+      ]
+    }
+  ]
+}
