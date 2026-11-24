@@ -8,6 +8,7 @@ import { canMove, needsFrontSideWaiver, STAGES, type Stage } from '../lib/stages
 import { issueWarranties } from '../lib/warranty.js';
 import { recordRevShare } from '../lib/revshare.js';
 import { sendPaidReceipt } from '../lib/receipt.js';
+import { bookAppointment, slotInput } from '../lib/booking.js';
 import { assert, idParam, logActivity, optText } from './shared.js';
 
 const SERVICES = ['full_tint', 'front_two', 'windshield', 'sun_strip', 'pano_roof', 'removal', 'wrap',
@@ -31,7 +32,7 @@ const lineItemInput = z.object({
 const OPEN_FOR_EDIT: Stage[] = ['new_lead', 'quoted', 'booked', 'in_bay', 'completed'];
 
 /** Locks the job row for the rest of the transaction so concurrent payments or moves can't race. */
-async function lockJob(q: Queryable, id: string) {
+export async function lockJob(q: Queryable, id: string) {
   const { rows } = await q.query('SELECT * FROM jobs WHERE id = $1 FOR UPDATE', [id]);
   if (!rows[0]) throw notFound('Job');
   return rows[0];
@@ -291,36 +292,8 @@ export function jobsRouter({ db, sender }: Deps) {
 
   r.post('/jobs/:id/appointments', async (req, res) => {
     const id = idParam(req.params.id, 'Job');
-    const b = z.object({
-      starts_at: z.iso.datetime({ offset: true }),
-      ends_at: z.iso.datetime({ offset: true }),
-      bay: z.number().int().min(1).max(20).default(1),
-      installer_id: z.uuid().nullish(),
-    }).parse(req.body);
-    assert(new Date(b.ends_at) > new Date(b.starts_at), 'bad_time_range', 'End time must be after start time');
-    const out = await db.tx(async (q) => {
-      const job = await lockJob(q, id);
-      assert(['new_lead', 'quoted', 'booked'].includes(job.stage), 'job_not_bookable',
-        'Only open jobs that are not yet in the bay can be booked');
-      // Serialize bookings per bay: lock existing appointments in the bay before checking overlap.
-      const clash = await q.query(
-        `SELECT a.id, j.number FROM appointments a JOIN jobs j ON j.id = a.job_id
-          WHERE a.bay = $1 AND a.status NOT IN ('cancelled','no_show','done')
-            AND tstzrange(a.starts_at, a.ends_at) && tstzrange($2::timestamptz, $3::timestamptz)
-          FOR UPDATE OF a`,
-        [b.bay, b.starts_at, b.ends_at],
-      );
-      if (clash.rows[0]) throw conflict('bay_taken', `Bay ${b.bay} is already booked then (job #${clash.rows[0].number})`);
-      const appt = (await q.query(
-        `INSERT INTO appointments (job_id, starts_at, ends_at, bay, installer_id) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-        [id, b.starts_at, b.ends_at, b.bay, b.installer_id ?? null],
-      )).rows[0];
-      if (job.stage === 'quoted') {
-        await q.query(`UPDATE jobs SET stage = 'booked', updated_at = now() WHERE id = $1`, [id]);
-        await logActivity(q, 'job', id, 'stage_changed', { from: 'quoted', to: 'booked', auto: true });
-      }
-      return appt;
-    });
+    const b = slotInput.parse(req.body);
+    const out = await db.tx(async (q) => bookAppointment(q, await lockJob(q, id), b));
     res.status(201).json(out);
   });
 
@@ -398,7 +371,7 @@ export function jobsRouter({ db, sender }: Deps) {
 }
 
 /** Vehicles and properties on a job must belong to that job's customer. */
-async function assertOwnedSubject(q: Queryable, contactId: string, vehicleId?: string | null, propertyId?: string | null) {
+export async function assertOwnedSubject(q: Queryable, contactId: string, vehicleId?: string | null, propertyId?: string | null) {
   if (vehicleId) {
     const v = await q.query('SELECT contact_id FROM vehicles WHERE id = $1', [vehicleId]);
     assert(v.rows[0], 'unknown_vehicle', 'Vehicle not found');

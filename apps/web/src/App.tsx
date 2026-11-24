@@ -86,15 +86,21 @@ export default function App() {
 
   let page: ReactNode;
   const jobMatch = route.match(/^\/jobs\/([0-9a-f-]{36})$/);
+  const dayMatch = route.match(/^\/day\/(\d{4}-\d{2}-\d{2})$/);
+  const bookMatch = route.match(/^\/book(?:\/(\d{4}-\d{2}-\d{2}))?$/);
   if (jobMatch) page = <JobPage id={jobMatch[1]} />;
+  else if (dayMatch) page = <Today day={dayMatch[1]} />;
+  else if (bookMatch) page = <AddAppointment day={bookMatch[1]} />;
+  else if (route === '/pipeline') page = <Board />;
   else if (route === '/new') page = <QuickLead />;
   else if (route === '/warranty') page = <WarrantyLookup />;
   else if (route === '/import') page = <ImportClients />;
-  else page = <Board />;
+  else page = <Today />;
 
-  const nav = [['#/', 'Pipeline'], ['#/warranty', 'Warranties']];
-  const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/jobs')
-    : href === '#/new' ? route === '/new' : `#${route}` === href);
+  const nav = [['#/', 'Today'], ['#/pipeline', 'Pipeline'], ['#/warranty', 'Warranties']];
+  const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/day/')
+    : href === '#/pipeline' ? route === '/pipeline' || route.startsWith('/jobs') || route === '/new'
+    : href === '#/book' ? route.startsWith('/book') : `#${route}` === href);
   return (
     <>
       <header className="topbar">
@@ -103,18 +109,23 @@ export default function App() {
           {nav.map(([href, label]) => <a key={href} href={href} aria-current={active(href) ? 'page' : undefined}>{label}</a>)}
         </nav>
         <span className="spacer" />
-        <a className="btn new-btn" href="#/new">New lead</a>
+        <a className="btn secondary new-btn" href="#/new">New lead</a>
+        <a className="btn new-btn" href="#/book">Add appointment</a>
       </header>
       <main>{page}</main>
       {/* Phones: thumb-reach navigation. Hidden on wider screens. */}
       <nav className="tabbar" aria-label="Main">
         <a href="#/" aria-current={active('#/') ? 'page' : undefined}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /><path d="M8.5 14.5h3" /></svg>
+          Today
+        </a>
+        <a href="#/pipeline" aria-current={active('#/pipeline') ? 'page' : undefined}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5" /><rect x="10" y="4" width="5" height="11" rx="1.5" /><rect x="17" y="4" width="4" height="7" rx="1.5" /></svg>
           Pipeline
         </a>
-        <a href="#/new" className="tab-new" aria-current={active('#/new') ? 'page' : undefined}>
+        <a href="#/book" className="tab-new" aria-current={active('#/book') ? 'page' : undefined}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          New lead
+          Book
         </a>
         <a href="#/warranty" aria-current={active('#/warranty') ? 'page' : undefined}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
@@ -183,6 +194,7 @@ function Board() {
           <h1>Pipeline</h1>
           {data && <p className="muted">{open} open {open === 1 ? 'job' : 'jobs'}{openValue ? `, ${money(openValue)} quoted before tax` : ''}</p>}
         </div>
+        <a className="btn secondary phone-only" href="#/new">New lead</a>
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {!data && !error && <p className="muted">Loading the board…</p>}
@@ -237,6 +249,365 @@ function JobCard({ j }: { j: any }) {
   );
 }
 
+/* ---------- today (home) ---------- */
+const SHOP_TZ = 'America/Chicago';
+const shopTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: SHOP_TZ });
+/** 'YYYY-MM-DD' shifted by whole days (calendar math at noon UTC, so DST never moves the date). */
+const addDays = (day: string, n: number) =>
+  new Date(Date.parse(`${day}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+const dayLabel = (day: string, today: string) =>
+  day === today ? 'Today' : day === addDays(today, 1) ? 'Tomorrow' : day === addDays(today, -1) ? 'Yesterday'
+    : new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+const longDate = (day: string) =>
+  new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+/** Shop-local date + 'HH:MM' → ISO instant, whatever time zone the phone is set to. */
+function shopInstant(day: string, hhmm: string) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const probe = new Date(`${day}T12:00:00Z`);
+  const shopNoon = Number(probe.toLocaleString('en-US', { timeZone: SHOP_TZ, hour: 'numeric', hour12: false }));
+  const offsetH = 12 - shopNoon; // hours the shop is behind UTC that day (5 or 6 for Dallas)
+  return new Date(Date.parse(`${day}T00:00:00Z`) + ((h + offsetH) * 60 + m) * 6e4).toISOString();
+}
+
+function Today({ day }: { day?: string }) {
+  const { data, error } = useLoad(() => api(`/today${day ? `?date=${day}` : ''}`), [day]);
+  const date: string | undefined = data?.date;
+  const go = (d: string) => { location.hash = d === data?.today ? '#/' : `#/day/${d}`; };
+  const shown = new Set<string>((data?.appointments ?? []).map((a: any) => a.id));
+  const inBay = (data?.in_bay ?? []).filter((j: any) => !shown.has(j.id));
+  const owed = (data?.to_collect ?? []).reduce((n: number, j: any) => n + j.balance_cents, 0);
+  return (
+    <div className="today">
+      <div className="page-head">
+        <div>
+          <h1>{date ? dayLabel(date, data.today) : 'Today'}</h1>
+          {date && <p className="muted">{longDate(date)}</p>}
+        </div>
+        <a className="btn add-appt" href={`#/book${date && date !== data?.today ? `/${date}` : ''}`}>Add appointment</a>
+      </div>
+      {date && (
+        <div className="day-nav" role="group" aria-label="Change day">
+          <button type="button" className="btn secondary" onClick={() => go(addDays(date, -1))} aria-label="Previous day">‹</button>
+          <button type="button" className="btn secondary day-today" onClick={() => go(data.today)} disabled={date === data.today}>Today</button>
+          <button type="button" className="btn secondary" onClick={() => go(addDays(date, 1))} aria-label="Next day">›</button>
+        </div>
+      )}
+      {error && <div className="error" role="alert">{error}</div>}
+      {!data && !error && <p className="muted">Loading the day…</p>}
+      {data && (
+        <>
+          <div className="stats">
+            <div className="stat"><span className="stat-n">{data.appointments.length}</span><span className="stat-l">{data.appointments.length === 1 ? 'appointment' : 'appointments'}</span></div>
+            <div className="stat"><span className="stat-n">{data.in_bay.length}</span><span className="stat-l">in the bay</span></div>
+            <div className="stat"><span className="stat-n">{money(owed).replace(/\.00$/, '')}</span><span className="stat-l">to collect</span></div>
+          </div>
+          {(data.new_leads > 0 || data.stale_quotes > 0) && (
+            <a className="nudge" href="#/pipeline" onClick={() => { try { sessionStorage.setItem(STAGE_KEY, data.new_leads > 0 ? 'new_lead' : 'quoted'); } catch { /* private mode */ } }}>
+              {data.new_leads > 0 && <span><strong>{data.new_leads}</strong> new {data.new_leads === 1 ? 'lead' : 'leads'} waiting</span>}
+              {data.stale_quotes > 0 && <span><strong>{data.stale_quotes}</strong> {data.stale_quotes === 1 ? 'quote' : 'quotes'} with no reply in 3+ days</span>}
+              <span className="nudge-go" aria-hidden="true">›</span>
+            </a>
+          )}
+
+          <section className="today-section" aria-label="Schedule">
+            <h2>Schedule</h2>
+            {data.appointments.length === 0 ? (
+              <div className="empty-day">
+                <p>Nothing booked {date === data.today ? 'today' : `for ${longDate(date!)}`}.</p>
+                <a className="btn secondary" href={`#/book${date !== data.today ? `/${date}` : ''}`}>Add appointment</a>
+              </div>
+            ) : (
+              <ol className="sched">
+                {data.appointments.map((a: any) => (
+                  <li key={a.appointment_id}>
+                    <a className={`sched-item${a.stage === 'paid' || a.appointment_status === 'done' ? ' done' : ''}`} href={`#/jobs/${a.id}`}>
+                      <span className="sched-time">
+                        <strong>{shopTime(a.starts_at)}</strong>
+                        <span>{shopTime(a.ends_at)}</span>
+                      </span>
+                      <span className="sched-body">
+                        <span className="sched-top"><span className="who">{personName(a)}</span><StagePill stage={a.stage} /></span>
+                        <span className="vehicle">{vehicleName(a) || 'Vehicle not added'}</span>
+                        <span className="sched-meta">
+                          <span className="pill">Bay {a.bay}</span>
+                          {a.services.length > 0
+                            ? <span>{[...new Set<string>(a.services)].map((x) => SERVICES[x] ?? x).join(', ')}</span>
+                            : a.note ? <span className="faint">{a.note}</span> : null}
+                        </span>
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          {inBay.length > 0 && (
+            <section className="today-section" aria-label="In the bay now">
+              <h2>In the bay now</h2>
+              <div className="col-body">{inBay.map((j: any) => <MiniJob key={j.id} j={j} />)}</div>
+            </section>
+          )}
+          {data.to_collect.length > 0 && (
+            <section className="today-section" aria-label="Ready for pickup">
+              <h2>Done, waiting on payment</h2>
+              <div className="col-body">{data.to_collect.map((j: any) => <MiniJob key={j.id} j={j} right={money(j.balance_cents)} />)}</div>
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MiniJob({ j, right }: { j: any; right?: string }) {
+  return (
+    <a className="card" href={`#/jobs/${j.id}`}>
+      <div className="card-top"><span className="who">{personName(j)}</span>{right ? <span className="price">{right}</span> : <span className="num">#{j.number}</span>}</div>
+      <div className="vehicle">{vehicleName(j) || 'Vehicle not added'}</div>
+    </a>
+  );
+}
+
+/* ---------- add appointment ---------- */
+const START_TIMES = Array.from({ length: 25 }, (_, i) => {
+  const mins = 7 * 60 + i * 30; // 7:00 AM to 7:00 PM
+  const hh = String(Math.floor(mins / 60)).padStart(2, '0');
+  const mm = String(mins % 60).padStart(2, '0');
+  const label = new Date(Date.UTC(2000, 0, 1, Math.floor(mins / 60), mins % 60))
+    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
+  return { value: `${hh}:${mm}`, label };
+});
+const shopTodayIso = () => new Date().toLocaleDateString('en-CA', { timeZone: SHOP_TZ });
+
+function AddAppointment({ day }: { day?: string }) {
+  const [mode, setMode] = useState<'existing' | 'new'>('existing');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<any[] | null>(null);
+  const [client, setClient] = useState<any | null>(null);
+  const [openJobs, setOpenJobs] = useState<any[]>([]);
+  const [jobId, setJobId] = useState<string>(''); // '' = something new
+  const [vehicleId, setVehicleId] = useState<string>(''); // '' = another vehicle
+  const [f, setF] = useState({
+    mobile: '', first_name: '', last_name: '', language: 'en',
+    year: '', make: '', model: '', service: '', price: '', note: '',
+    date: day ?? shopTodayIso(), time: '10:00', hours: '2', bay: '1',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+
+  // Search clients by name or phone as the owner types.
+  useEffect(() => {
+    if (mode !== 'existing' || client) return;
+    const q = query.trim();
+    if (q.length < 2) { setResults(null); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      api(`/contacts?q=${encodeURIComponent(q)}&limit=8`).then((r) => { if (live) setResults(r); }).catch(() => { if (live) setResults([]); });
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [query, mode, client]);
+
+  const choose = async (c: any) => {
+    setClient(c);
+    setResults(null);
+    setError(null);
+    try {
+      const [detail, jobs] = await Promise.all([api(`/contacts/${c.id}`), api(`/contacts/${c.id}/open-jobs`)]);
+      setClient({ ...c, vehicles: detail.vehicles ?? [] });
+      setOpenJobs(jobs);
+      setJobId(jobs[0]?.id ?? '');
+      setVehicleId(detail.vehicles?.[detail.vehicles.length - 1]?.id ?? '');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const clearClient = () => { setClient(null); setOpenJobs([]); setJobId(''); setVehicleId(''); };
+  const newWithPhone = () => {
+    const digits = query.replace(/\D/g, '');
+    setMode('new');
+    setF((x) => ({ ...x, mobile: digits.length >= 7 ? query.trim() : x.mobile, first_name: digits ? x.first_name : query.trim().split(/\s+/)[0] ?? '', last_name: digits ? x.last_name : query.trim().split(/\s+/).slice(1).join(' ') }));
+  };
+
+  const bookingExisting = mode === 'existing' && client && jobId;
+  const needsVehicleFields = mode === 'new' || (client && !jobId && !vehicleId);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (mode === 'existing' && !client) { setError('Pick a client from the search, or switch to New client.'); return; }
+    setBusy(true);
+    setError(null);
+    const starts = shopInstant(f.date, f.time);
+    const slot = { starts_at: starts, ends_at: new Date(Date.parse(starts) + Number(f.hours) * 3600_000).toISOString(), bay: Number(f.bay) };
+    const hasVehicle = f.year || f.make || f.model;
+    const price = f.price.trim() ? Math.round(Number(f.price.replace(/[$,]/g, '')) * 100) : null;
+    if (price != null && !Number.isFinite(price)) { setBusy(false); setError('Price should be a number, like 300 or 249.99.'); return; }
+    const body: Record<string, unknown> = bookingExisting
+      ? { job_id: jobId, note: f.note, slot }
+      : {
+          contact: mode === 'existing'
+            ? { mobile: client.mobile }
+            : { mobile: f.mobile, first_name: f.first_name, last_name: f.last_name, language: f.language },
+          vehicle_id: mode === 'existing' && vehicleId ? vehicleId : undefined,
+          vehicle: needsVehicleFields && hasVehicle ? { year: f.year ? Number(f.year) : null, make: f.make, model: f.model } : undefined,
+          service: f.service || undefined,
+          price_cents: f.service ? price : undefined,
+          note: f.note,
+          slot,
+        };
+    try {
+      await api('/appointments', { body });
+      location.hash = f.date === shopTodayIso() ? '#/' : `#/day/${f.date}`;
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div className="page-head">
+        <div>
+          <p className="crumb"><a href="#/">Today</a></p>
+          <h1>Add appointment</h1>
+        </div>
+      </div>
+      <form className="panel" onSubmit={submit}>
+        <div className="panel-body form">
+          <fieldset>
+            <legend>Client</legend>
+            <div className="seg" role="tablist" aria-label="Client">
+              <button type="button" role="tab" aria-selected={mode === 'existing'} onClick={() => { setMode('existing'); setError(null); }}>Existing client</button>
+              <button type="button" role="tab" aria-selected={mode === 'new'} onClick={() => { setMode('new'); clearClient(); setError(null); }}>New client</button>
+            </div>
+            {mode === 'existing' && !client && (
+              <>
+                <label>Search by name or phone
+                  <input id="appt-search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} autoComplete="off" enterKeyHint="search" placeholder="Maria or 214 555" />
+                </label>
+                {results && results.length > 0 && (
+                  <ul className="pick-list" aria-label="Matching clients">
+                    {results.map((c) => (
+                      <li key={c.id}>
+                        <button type="button" onClick={() => choose(c)}>
+                          <span className="who">{personName(c)}</span>
+                          <span className="faint small">{formatPhone(c.mobile)}{c.job_count ? ` · ${c.job_count} ${c.job_count === 1 ? 'job' : 'jobs'}` : ''}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {results && results.length === 0 && (
+                  <div className="empty-col">No client matches “{query.trim()}”. <button type="button" className="linkish" onClick={newWithPhone}>Add them as a new client</button></div>
+                )}
+              </>
+            )}
+            {mode === 'existing' && client && (
+              <div className="picked">
+                <div className="main"><span className="who">{personName(client)}</span><span className="faint small">{formatPhone(client.mobile)}</span></div>
+                <button type="button" className="btn ghost sm" onClick={clearClient}>Change</button>
+              </div>
+            )}
+            {mode === 'new' && (
+              <div className="fields">
+                <label>Mobile<input id="appt-mobile" type="tel" value={f.mobile} onChange={set('mobile')} inputMode="tel" autoComplete="off" required placeholder="(214) 555-0123" /></label>
+                <label>First name<input id="appt-first" value={f.first_name} onChange={set('first_name')} autoCapitalize="words" autoComplete="off" /></label>
+                <label>Last name<input id="appt-last" value={f.last_name} onChange={set('last_name')} autoCapitalize="words" autoComplete="off" /></label>
+                <label>Language
+                  <select id="appt-lang" value={f.language} onChange={set('language')}><option value="en">English</option><option value="es">Español</option></select>
+                </label>
+              </div>
+            )}
+          </fieldset>
+
+          {client && openJobs.length > 0 && (
+            <fieldset>
+              <legend>What is this for?</legend>
+              <div className="choice-list" role="radiogroup" aria-label="What is this for?">
+                {openJobs.map((j) => (
+                  <label key={j.id} className="choice">
+                    <input type="radio" name="appt-job" checked={jobId === j.id} onChange={() => setJobId(j.id)} />
+                    <span><strong>#{j.number}</strong> {vehicleName(j) || 'No vehicle yet'}<span className="faint small"> · {j.stage === 'quoted' ? 'Quoted' : 'New lead'}{j.subtotal_cents ? ` ${money(j.subtotal_cents)}` : ''}</span></span>
+                  </label>
+                ))}
+                <label className="choice">
+                  <input type="radio" name="appt-job" checked={jobId === ''} onChange={() => setJobId('')} />
+                  <span>Something new</span>
+                </label>
+              </div>
+            </fieldset>
+          )}
+
+          {!bookingExisting && (
+            <fieldset>
+              <legend>Vehicle</legend>
+              {client && client.vehicles?.length > 0 && (
+                <div className="choice-list" role="radiogroup" aria-label="Vehicle">
+                  {client.vehicles.map((v: any) => (
+                    <label key={v.id} className="choice">
+                      <input type="radio" name="appt-vehicle" checked={vehicleId === v.id} onChange={() => setVehicleId(v.id)} />
+                      <span>{vehicleName(v) || 'Vehicle'}{v.plate ? <span className="faint small"> · {v.plate}</span> : null}</span>
+                    </label>
+                  ))}
+                  <label className="choice">
+                    <input type="radio" name="appt-vehicle" checked={vehicleId === ''} onChange={() => setVehicleId('')} />
+                    <span>Another vehicle</span>
+                  </label>
+                </div>
+              )}
+              {needsVehicleFields && (
+                <div className="fields">
+                  <label>Year<input id="appt-year" value={f.year} onChange={set('year')} inputMode="numeric" pattern="(19|20)\d{2}" placeholder="2024" /></label>
+                  <label>Make<input id="appt-make" value={f.make} onChange={set('make')} placeholder="Toyota" autoCapitalize="words" autoComplete="off" /></label>
+                  <label>Model<input id="appt-model" value={f.model} onChange={set('model')} placeholder="Camry" autoCapitalize="words" autoComplete="off" /></label>
+                </div>
+              )}
+            </fieldset>
+          )}
+
+          {!bookingExisting && (
+            <fieldset>
+              <legend>Service</legend>
+              <div className="fields">
+                <label>Service
+                  <select id="appt-service" value={f.service} onChange={set('service')}>
+                    <option value="">Not sure yet</option>
+                    {Object.entries(SERVICES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                </label>
+                <label>Price ($)<input id="appt-price" value={f.price} onChange={set('price')} inputMode="decimal" placeholder="Optional" disabled={!f.service} /></label>
+              </div>
+            </fieldset>
+          )}
+
+          <fieldset>
+            <legend>When</legend>
+            <div className="fields">
+              <label>Date<input id="appt-date" type="date" value={f.date} onChange={set('date')} required /></label>
+              <label>Start
+                <select id="appt-start" value={f.time} onChange={set('time')}>{START_TIMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
+              </label>
+              <label>Hours
+                <select id="appt-length" value={f.hours} onChange={set('hours')}>{['1', '1.5', '2', '3', '4', '6', '8'].map((h) => <option key={h}>{h}</option>)}</select>
+              </label>
+              <label>Bay<select id="appt-bay-pick" value={f.bay} onChange={set('bay')}>{['1', '2', '3'].map((b) => <option key={b}>{b}</option>)}</select></label>
+            </div>
+          </fieldset>
+          <label>Note<textarea id="appt-note" rows={2} value={f.note} onChange={set('note')} placeholder="Wants 35% all around, coming after work" /></label>
+          {error && <div className="error" role="alert">{error}</div>}
+        </div>
+        <div className="panel-foot actions form-actions">
+          <a className="btn ghost" href="#/">Cancel</a>
+          <button className="btn" disabled={busy}>{busy ? 'Booking…' : 'Book appointment'}</button>
+        </div>
+      </form>
+      <p className="faint small" style={{ marginTop: 12 }}>No time yet? <a href="#/new">Add a lead instead</a>.</p>
+    </div>
+  );
+}
+
 /* ---------- quick lead ---------- */
 function QuickLead() {
   const [f, setF] = useState({ first_name: '', last_name: '', mobile: '', language: 'en', year: '', make: '', model: '', lead_source: 'text', note: '' });
@@ -266,7 +637,7 @@ function QuickLead() {
     <div style={{ maxWidth: 720 }}>
       <div className="page-head">
         <div>
-          <p className="crumb"><a href="#/">Pipeline</a></p>
+          <p className="crumb"><a href="#/pipeline">Pipeline</a></p>
           <h1>New lead</h1>
         </div>
       </div>
@@ -302,7 +673,7 @@ function QuickLead() {
           {error && <div className="error" role="alert">{error}</div>}
         </div>
         <div className="panel-foot actions form-actions">
-          <a className="btn ghost" href="#/">Cancel</a>
+          <a className="btn ghost" href="#/pipeline">Cancel</a>
           <button className="btn" disabled={busy}>{busy ? 'Saving…' : 'Create lead'}</button>
         </div>
       </form>
@@ -397,7 +768,7 @@ function JobPage({ id }: { id: string }) {
   return (
     <div className="job-page">
       <div className="job-head">
-        <p className="crumb"><a href="#/">Pipeline</a> / Job #{job.number}</p>
+        <p className="crumb"><a href="#/pipeline">Pipeline</a> / Job #{job.number}</p>
         <div className="job-title">
           <div>
             <div className="actions" style={{ gap: 12 }}>
@@ -827,7 +1198,7 @@ function ImportClients() {
           <div className="balance zero"><span>Imported from {fileName}</span><span>Done</span></div>
           <p style={{ margin: 0 }}>{done.counts.contacts_new} new clients, {done.counts.contacts_existing} already on file, {done.counts.vehicles} cars, {done.counts.past_jobs} past jobs and {done.counts.warranties} warranties.</p>
           {done.counts.skipped > 0 && <p className="muted" style={{ margin: 0 }}>{done.counts.skipped} rows were skipped (no valid phone number).</p>}
-          <div className="actions"><a className="btn" href="#/warranty">Look up a warranty</a><a className="btn secondary" href="#/">Back to pipeline</a></div>
+          <div className="actions"><a className="btn" href="#/warranty">Look up a warranty</a><a className="btn secondary" href="#/">Back to today</a></div>
         </div></section>
       </div>
     );

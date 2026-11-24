@@ -50,7 +50,7 @@ describe('UI end to end', () => {
   it('takes a lead from the quick-lead form all the way to Paid with a warranty', async () => {
     const user = userEvent.setup();
     await signIn(user);
-    expect(await screen.findByRole('heading', { name: 'Pipeline' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Today' })).toBeTruthy();
 
     await user.click(screen.getAllByRole('link', { name: 'New lead' })[0]);
     await user.type(await screen.findByLabelText('Mobile'), '(214) 555-7788');
@@ -143,7 +143,7 @@ describe('UI end to end', () => {
     const user = userEvent.setup();
     const ok = globalThis.fetch;
     await signIn(user);
-    await screen.findByRole('heading', { name: 'Pipeline' });
+    await screen.findByRole('heading', { name: 'Today' });
     globalThis.fetch = (async () => new Response('<html>502 Bad Gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } })) as typeof fetch;
     try {
       await user.click(screen.getAllByRole('link', { name: 'Warranties' })[0]);
@@ -160,7 +160,7 @@ describe('UI end to end', () => {
   it('BUG 14: when the access code stops working, staff are sent back to sign in', async () => {
     const user = userEvent.setup();
     await signIn(user);
-    await screen.findByRole('heading', { name: 'Pipeline' });
+    await screen.findByRole('heading', { name: 'Today' });
     localStorage.setItem('daspot.staffToken', 'revoked-code');
     await user.click(screen.getAllByRole('link', { name: 'Warranties' })[0]);
     await user.type(await screen.findByLabelText(/Name, phone, email, plate/), 'ABC1234');
@@ -171,6 +171,7 @@ describe('UI end to end', () => {
   it('phone board: stage tabs pick which column shows, and the choice sticks', async () => {
     const user = userEvent.setup();
     sessionStorage.clear();
+    location.hash = '#/pipeline';
     await signIn(user);
     const tabs = await screen.findByRole('tablist', { name: 'Stage' });
     const paidTab = within(tabs).getByRole('tab', { name: /Paid/ });
@@ -252,8 +253,59 @@ describe('UI end to end', () => {
 
   it('shows new leads on the board in the right column', async () => {
     const user = userEvent.setup();
+    location.hash = '#/pipeline';
     await signIn(user);
     const col = await screen.findByRole('region', { name: 'New lead' });
     await waitFor(() => expect(within(col).getAllByRole('link').length).toBeGreaterThan(0));
+  });
+  it('home: Add appointment books a new client and shows them on today\'s schedule', async () => {
+    const user = userEvent.setup();
+    await signIn(user);
+    expect(await screen.findByRole('heading', { name: 'Today' })).toBeTruthy();
+    await user.click(screen.getAllByRole('link', { name: 'Add appointment' })[0]);
+    await user.click(await screen.findByRole('tab', { name: 'New client' }));
+    await user.type(screen.getByLabelText('Mobile'), '(214) 555-6120');
+    await user.type(screen.getByLabelText('First name'), 'Rosa');
+    await user.type(screen.getByLabelText('Last name'), 'Delgado');
+    await user.type(screen.getByLabelText('Year'), '2022');
+    await user.type(screen.getByLabelText('Make'), 'Nissan');
+    await user.type(screen.getByLabelText('Model'), 'Altima');
+    await user.selectOptions(screen.getByLabelText('Service'), 'full_tint');
+    await user.type(screen.getByLabelText('Price ($)'), '300');
+    await user.selectOptions(screen.getByLabelText('Start'), '15:00');
+    await user.selectOptions(screen.getByLabelText('Bay'), '3');
+    await user.click(screen.getByRole('button', { name: 'Book appointment' }));
+    const sched = await screen.findByRole('region', { name: 'Schedule' });
+    await waitFor(() => expect(within(sched).getByText('Rosa Delgado')).toBeTruthy());
+    expect(within(sched).getByText('3:00 PM')).toBeTruthy();
+    expect(within(sched).getByText('Bay 3')).toBeTruthy();
+    expect(within(sched).getByText('Full tint')).toBeTruthy();
+    expect(within(sched).getByText('Booked')).toBeTruthy();
+  });
+
+  it('Add appointment: finds an existing client and books their open quote', async () => {
+    const H = { authorization: 'Bearer ui-token', 'content-type': 'application/json' };
+    const lead = await (await fetch('/api/leads', { method: 'POST', headers: H, body: JSON.stringify({
+      contact: { mobile: '9725556677', first_name: 'Teodoro', last_name: 'Quintana' }, vehicle: { year: 2020, make: 'Ram', model: '1500' } }) })).json();
+    await fetch(`/api/jobs/${lead.job.id}/line-items`, { method: 'POST', headers: H, body: JSON.stringify({ service: 'windshield', unit_price_cents: 22000 }) });
+    await fetch(`/api/jobs/${lead.job.id}/stage`, { method: 'POST', headers: H, body: JSON.stringify({ to: 'quoted' }) });
+
+    const user = userEvent.setup();
+    location.hash = '#/book';
+    await signIn(user);
+    await user.type(await screen.findByLabelText('Search by name or phone'), 'Teodoro');
+    await user.click(await screen.findByRole('button', { name: /Teodoro Quintana/ }));
+    const what = await screen.findByRole('radiogroup', { name: 'What is this for?' });
+    const quote = within(what).getByRole('radio', { name: new RegExp(`#${lead.job.number}`) }) as HTMLInputElement;
+    expect(quote.checked).toBe(true);
+    expect(screen.queryByLabelText('Make')).toBeNull(); // the quote already has the truck
+    await user.selectOptions(screen.getByLabelText('Bay'), '2');
+    await user.selectOptions(screen.getByLabelText('Start'), '08:00');
+    await user.click(screen.getByRole('button', { name: 'Book appointment' }));
+    const sched = await screen.findByRole('region', { name: 'Schedule' });
+    await waitFor(() => expect(within(sched).getByText('Teodoro Quintana')).toBeTruthy());
+    const job = await (await fetch(`/api/jobs/${lead.job.id}`, { headers: H })).json();
+    expect(job.stage).toBe('booked');
+    expect(job.appointments).toHaveLength(1);
   });
 });

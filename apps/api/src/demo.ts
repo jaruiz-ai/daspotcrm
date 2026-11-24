@@ -65,6 +65,20 @@ export async function loadDemoData(db: Db, app: Express, staffToken: string): Pr
     await call(`/jobs/${marcus}/appointments`, { starts_at: at(2, 10), ends_at: at(2, 12, 30), bay: 1 });
     await call(`/jobs/${marcus}/payments`, { amount_cents: 5000, kind: 'deposit', method: 'card' });
 
+    // Booked for later today, through Add appointment
+    await call('/appointments', {
+      contact: { mobile: '2145556120', first_name: 'Rosa', last_name: 'Delgado', language: 'es' },
+      vehicle: { year: 2022, make: 'Nissan', model: 'Altima' },
+      service: 'full_tint', price_cents: 30000, note: 'Wants 35% all around',
+      slot: { starts_at: at(0, 14), ends_at: at(0, 16), bay: 1 },
+    });
+    await call('/appointments', {
+      contact: { mobile: '4695550133', first_name: 'Kevin', last_name: 'Tran' },
+      vehicle: { year: 2024, make: 'Toyota', model: 'Camry' },
+      service: 'windshield', price_cents: 22000,
+      slot: { starts_at: at(0, 16, 30), ends_at: at(0, 17, 30), bay: 3 },
+    });
+
     // In the bay — 20% fronts, so the Texas waiver is still needed
     const carlos = await lead('Carlos', 'Mendez', '4695550176', 'es', { year: 2019, make: 'Toyota', model: 'Tacoma', plate: 'LKP 4821' }, 'text');
     await line(carlos, { service: 'full_tint', shade_vlt: 20, film_product_id: film['Carbon-Ceramic'], unit_price_cents: 30000 });

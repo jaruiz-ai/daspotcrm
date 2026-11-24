@@ -208,6 +208,58 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .job-grid { grid-template-columns: minmax(0, 1fr); }
   .side { position: static; }
 }
+
+/* ---------- today (home) ---------- */
+.today { max-width: 960px; }
+.today .add-appt { display: none; } /* the top bar has it on computers */
+.day-nav { display: flex; gap: 8px; margin: -8px 0 20px; }
+.day-nav .btn { min-width: 48px; font-size: 1.125rem; }
+.day-nav .day-today { font-size: 0.9375rem; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.stat { display: grid; gap: 2px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); min-width: 0; }
+.stat-n { font-family: var(--display); font-size: 1.75rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.stat-l { font-size: 0.8125rem; color: var(--muted); }
+.nudge { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; min-height: 48px; padding: 10px 40px 10px 16px; margin-bottom: 20px; position: relative;
+  background: var(--accent-soft); color: var(--accent); border-radius: var(--radius-lg); font-weight: 500; text-decoration: none; }
+.nudge:hover { text-decoration: none; }
+.nudge-go { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 1.25rem; }
+.today-section { display: grid; gap: 10px; margin-bottom: 24px; }
+.today-section h2 { font-size: 0.9375rem; color: var(--muted); font-weight: 600; }
+.sched { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sched-item { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; padding: 12px 14px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius-lg); text-decoration: none; }
+.sched-item:hover { text-decoration: none; }
+.sched-item.done { opacity: 0.6; }
+.sched-time { display: grid; align-content: start; gap: 2px; font-variant-numeric: tabular-nums; }
+.sched-time strong { font-size: 0.9375rem; }
+.sched-time span { font-size: 0.8125rem; color: var(--faint); }
+.sched-body { display: grid; gap: 4px; min-width: 0; }
+.sched-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sched-top .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sched-body .vehicle { color: var(--muted); font-size: 0.9375rem; }
+.sched-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.875rem; color: var(--muted); }
+.sched-meta .pill { height: 22px; font-size: 0.75rem; }
+.empty-day { display: grid; justify-items: start; gap: 12px; padding: 20px; border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); color: var(--muted); }
+.empty-day p { margin: 0; }
+
+/* ---------- add appointment ---------- */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius); }
+.seg button { height: 40px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; }
+.seg button[aria-selected='true'] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(24, 32, 36, 0.1); }
+.pick-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+.pick-list li + li { border-top: 1px solid var(--line); }
+.pick-list button { display: grid; gap: 2px; width: 100%; min-height: 56px; padding: 8px 14px; text-align: left; border: 0; background: var(--surface); cursor: pointer; }
+.pick-list .who { font-weight: 600; }
+.picked { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; background: var(--accent-soft); border-radius: var(--radius-lg); }
+.picked .main { display: grid; gap: 2px; min-width: 0; }
+.picked .who { font-weight: 600; }
+.choice-list { display: grid; gap: 8px; }
+.choice { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius);
+  font-size: 1rem; font-weight: 400; color: var(--ink); cursor: pointer; }
+.choice:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.choice input { width: 20px; height: 20px; flex: none; accent-color: var(--accent); margin: 0; }
+.linkish { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+input:disabled { background: var(--sunken); color: var(--faint); }
 /* ---------- phone-first pieces (hidden on wide screens) ---------- */
 .phone-only { display: none; }
 .tabbar { display: none; }
@@ -227,7 +279,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .brand span { display: none; }
 
   .tabbar {
-    display: grid; grid-template-columns: repeat(3, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+    display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
     background: var(--surface); border-top: 1px solid var(--line);
     height: calc(var(--tabbar-h) + var(--sab));
     padding: 4px calc(8px + var(--sar)) var(--sab) calc(8px + var(--sal));
@@ -275,6 +327,13 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .card { padding: 14px 16px; }
   .card .who { font-size: 1.0625rem; }
 
+
+  .today .page-head { display: grid; gap: 12px; justify-content: stretch; }
+  .day-nav { display: grid; grid-template-columns: 56px minmax(0, 1fr) 56px; }
+  .today .add-appt { display: flex; width: 100%; }
+  .stat { padding: 10px 12px; }
+  .stat-n { font-size: 1.5rem; }
+  .sched-item { grid-template-columns: 68px minmax(0, 1fr); padding: 14px; }
   /* Job page: main action pinned above the tab bar. */
   .job-page { padding-bottom: var(--actionbar-h); }
   .job-page:has(.job-actions.no-main) { padding-bottom: 0; }
