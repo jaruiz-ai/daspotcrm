@@ -70,14 +70,10 @@ describe('Add appointment', () => {
     expect(JSON.stringify(notes)).toContain('Booked for: Wrap');
   });
 
-  it('refuses a bay that is taken and creates nothing', async () => {
-    await ctx.api.post('/api/appointments', { contact: { mobile: nextPhone() }, slot: slot('2031-01-10', 10, 3, 2) });
-    const mobile = nextPhone();
-    const r = await ctx.api.post('/api/appointments', { contact: { mobile }, slot: slot('2031-01-10', 12, 1, 2) });
-    expect(r.status).toBe(409);
-    expect(r.body.error.code).toBe('bay_taken');
-    const found = (await ctx.api.get(`/api/contacts?q=${mobile.slice(-4)}`)).body;
-    expect(found.filter((c: any) => c.mobile === mobile)).toHaveLength(0);
+  it('allows two appointments at the same time', async () => {
+    await ctx.api.post('/api/appointments', { contact: { mobile: nextPhone() }, slot: slot('2031-01-10', 10, 3) });
+    const r = await ctx.api.post('/api/appointments', { contact: { mobile: nextPhone() }, slot: slot('2031-01-10', 12, 1) });
+    expect(r.status).toBe(201);
   });
 
   it('needs a client', async () => {
@@ -135,12 +131,12 @@ describe('Reschedule and cancel', () => {
   const book = async (day: string, hour: number, bay = 1, extra: object = {}) =>
     (await ctx.api.post('/api/appointments', { contact: { mobile: nextPhone(), first_name: 'Moves' }, slot: slot(day, hour, 2, bay), ...extra })).body;
 
-  it('moves an appointment to a new time and bay, keeping the same appointment', async () => {
+  it('moves an appointment to a new time, keeping the same appointment', async () => {
     const b = await book('2031-03-03', 9);
     const r = await ctx.api.post(`/api/appointments/${b.appointment.id}/reschedule`, slot('2031-03-05', 13, 3, 2));
     expect(r.status).toBe(200);
     expect(r.body.id).toBe(b.appointment.id);
-    expect(r.body.bay).toBe(2);
+    expect(new Date(r.body.ends_at).toISOString()).toBe(dallas('2031-03-05', 16));
     expect(new Date(r.body.starts_at).toISOString()).toBe(dallas('2031-03-05', 13));
     const job = (await ctx.api.get(`/api/jobs/${b.job_id}`)).body;
     expect(job.stage).toBe('booked');
@@ -149,20 +145,11 @@ describe('Reschedule and cancel', () => {
     expect(JSON.stringify(act)).toContain('appointment_rescheduled');
   });
 
-  it('can slide within its own time without clashing with itself', async () => {
-    const b = await book('2031-03-06', 9, 3);
-    const r = await ctx.api.post(`/api/appointments/${b.appointment.id}/reschedule`, slot('2031-03-06', 10, 2, 3));
+  it('can move onto a time another car already has', async () => {
+    await book('2031-03-09', 10);
+    const b = await book('2031-03-09', 14);
+    const r = await ctx.api.post(`/api/appointments/${b.appointment.id}/reschedule`, slot('2031-03-09', 11, 2));
     expect(r.status).toBe(200);
-  });
-
-  it('refuses a time when the bay is taken, and leaves the appointment where it was', async () => {
-    await book('2031-03-09', 10, 1);
-    const b = await book('2031-03-09', 14, 1);
-    const r = await ctx.api.post(`/api/appointments/${b.appointment.id}/reschedule`, slot('2031-03-09', 11, 2, 1));
-    expect(r.status).toBe(409);
-    expect(r.body.error.code).toBe('bay_taken');
-    const job = (await ctx.api.get(`/api/jobs/${b.job_id}`)).body;
-    expect(new Date(job.appointments[0].starts_at).toISOString()).toBe(dallas('2031-03-09', 14));
   });
 
   it('will not move a cancelled appointment or one for a car already in the bay', async () => {
@@ -177,13 +164,11 @@ describe('Reschedule and cancel', () => {
     expect(r.body.error.code).toBe('not_reschedulable');
   });
 
-  it('cancelling the only appointment puts the job back to Quoted and frees the bay', async () => {
+  it('cancelling the only appointment puts the job back to Quoted', async () => {
     const b = await book('2031-03-16', 10, 2);
     const r = await ctx.api.post(`/api/appointments/${b.appointment.id}/cancel`, { reason: 'client_cancelled' });
     expect(r.body.status).toBe('cancelled');
     expect((await ctx.api.get(`/api/jobs/${b.job_id}`)).body.stage).toBe('quoted');
-    const again = await book('2031-03-16', 10, 2);
-    expect(again.appointment).toBeTruthy();
     // and it can be booked again from Quoted
     const re = await ctx.api.post(`/api/jobs/${b.job_id}/appointments`, slot('2031-03-17', 10, 2, 2));
     expect(re.status).toBe(201);

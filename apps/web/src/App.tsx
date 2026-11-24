@@ -336,7 +336,6 @@ function Today({ day }: { day?: string }) {
                         <span className="sched-top"><span className="who">{personName(a)}</span><StagePill stage={a.stage} /></span>
                         <span className="vehicle">{vehicleName(a) || 'Vehicle not added'}</span>
                         <span className="sched-meta">
-                          <span className="pill">Bay {a.bay}</span>
                           {a.services.length > 0
                             ? <span>{[...new Set<string>(a.services)].map((x) => SERVICES[x] ?? x).join(', ')}</span>
                             : a.note ? <span className="faint">{a.note}</span> : null}
@@ -421,7 +420,7 @@ function Week({ start }: { start?: string }) {
               <div className="week-body">
                 {d.appointments.map((a: any) => (
                   <a key={a.appointment_id} className={`week-item${a.stage === 'paid' ? ' done' : ''}`} href={`#/jobs/${a.id}`}>
-                    <span className="week-time">{shopTime(a.starts_at)} · Bay {a.bay}</span>
+                    <span className="week-time">{shopTime(a.starts_at)} to {shopTime(a.ends_at)}</span>
                     <span className="who">{personName(a)}</span>
                     <span className="vehicle">{vehicleName(a) || [...new Set<string>(a.services)].map((x) => SERVICES[x] ?? x).join(', ') || 'Vehicle not added'}</span>
                   </a>
@@ -467,7 +466,7 @@ function AddAppointment({ day }: { day?: string }) {
   const [f, setF] = useState({
     mobile: '', first_name: '', last_name: '', language: 'en',
     year: '', make: '', model: '', service: '', price: '', note: '',
-    date: day ?? shopTodayIso(), time: '10:00', hours: '2', bay: '1',
+    date: day ?? shopTodayIso(), time: '10:00', hours: '2',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -515,7 +514,7 @@ function AddAppointment({ day }: { day?: string }) {
     setBusy(true);
     setError(null);
     const starts = shopInstant(f.date, f.time);
-    const slot = { starts_at: starts, ends_at: new Date(Date.parse(starts) + Number(f.hours) * 3600_000).toISOString(), bay: Number(f.bay) };
+    const slot = { starts_at: starts, ends_at: new Date(Date.parse(starts) + Number(f.hours) * 3600_000).toISOString() };
     const hasVehicle = f.year || f.make || f.model;
     const price = f.price.trim() ? Math.round(Number(f.price.replace(/[$,]/g, '')) * 100) : null;
     if (price != null && !Number.isFinite(price)) { setBusy(false); setError('Price should be a number, like 300 or 249.99.'); return; }
@@ -667,7 +666,6 @@ function AddAppointment({ day }: { day?: string }) {
               <label>Hours
                 <select id="appt-length" value={f.hours} onChange={set('hours')}>{['1', '1.5', '2', '3', '4', '6', '8'].map((h) => <option key={h}>{h}</option>)}</select>
               </label>
-              <label>Bay<select id="appt-bay-pick" value={f.bay} onChange={set('bay')}>{['1', '2', '3'].map((b) => <option key={b}>{b}</option>)}</select></label>
             </div>
           </fieldset>
           <label>Note<textarea id="appt-note" rows={2} value={f.note} onChange={set('note')} placeholder="Wants 35% all around, coming after work" /></label>
@@ -1023,7 +1021,7 @@ function JobPage({ id }: { id: string }) {
                         <div className="list-row">
                           <div className="main">
                             <span>{shopWhen(a.starts_at)} to {shopTime(a.ends_at)}</span>
-                            <span className="faint small">Bay {a.bay}{a.status === 'no_show' ? ' · No-show' : ''}</span>
+                            {a.status === 'no_show' && <span className="faint small">No-show</span>}
                           </div>
                           {movable && (
                             <div className="appt-actions">
@@ -1031,7 +1029,7 @@ function JobPage({ id }: { id: string }) {
                                 onClick={() => setMoving(moving === a.id ? null : a.id)}>Reschedule</button>
                               <button className="btn ghost sm" disabled={busy} onClick={() => setAsk({
                                 title: started ? 'Did the client not show up?' : 'Cancel this appointment?', danger: true,
-                                body: `${shopWhen(a.starts_at)}, bay ${a.bay}. The bay opens up for other jobs and it comes off the calendar.${back}`,
+                                body: `${shopWhen(a.starts_at)}. It comes off the schedule and the calendar.${back}`,
                                 confirm: started ? 'Mark no-show' : 'Yes, cancel it', keep: 'Keep it',
                                 run: () => run(`/appointments/${a.id}/cancel`, { reason: started ? 'no_show' : 'client_cancelled' }) })}>
                                 {started ? 'No-show' : 'Cancel'}
@@ -1186,9 +1184,9 @@ function LineItemForm({ films, onAdd, disabled }: { films: any[]; onAdd: (b: obj
   );
 }
 
-/** Date, start, length and bay in shop time. Books a new slot, or moves one when `initial` is given. */
+/** Date, start and length in shop time. Books a new slot, or moves one when `initial` is given. */
 function SlotForm({ onSave, disabled, label, initial }: {
-  onSave: (b: object) => Promise<boolean>; disabled: boolean; label: string; initial?: { starts_at: string; ends_at: string; bay: number };
+  onSave: (b: object) => Promise<boolean>; disabled: boolean; label: string; initial?: { starts_at: string; ends_at: string };
 }) {
   const shopParts = (iso: string) => {
     const d = new Date(iso);
@@ -1197,10 +1195,10 @@ function SlotForm({ onSave, disabled, label, initial }: {
     return { date, time };
   };
   const [f, setF] = useState(() => {
-    if (!initial) return { date: shopTodayIso(), time: '10:00', hours: '2', bay: '1' };
+    if (!initial) return { date: shopTodayIso(), time: '10:00', hours: '2' };
     const { date, time } = shopParts(initial.starts_at);
     const hours = String((Date.parse(initial.ends_at) - Date.parse(initial.starts_at)) / 3600_000);
-    return { date, time, hours, bay: String(initial.bay) };
+    return { date, time, hours };
   });
   const times = START_TIMES.some((t) => t.value === f.time) ? START_TIMES
     : [...START_TIMES, { value: f.time, label: f.time }].sort((x, y) => x.value.localeCompare(y.value));
@@ -1208,7 +1206,7 @@ function SlotForm({ onSave, disabled, label, initial }: {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const starts = shopInstant(f.date, f.time);
-    await onSave({ starts_at: starts, ends_at: new Date(Date.parse(starts) + Number(f.hours) * 3600_000).toISOString(), bay: Number(f.bay) });
+    await onSave({ starts_at: starts, ends_at: new Date(Date.parse(starts) + Number(f.hours) * 3600_000).toISOString() });
   };
   const k = initial ? 'move' : 'appt';
   return (
@@ -1218,7 +1216,6 @@ function SlotForm({ onSave, disabled, label, initial }: {
       <label>Hours
         <select id={`${k}-hours`} value={f.hours} onChange={(e) => setF({ ...f, hours: e.target.value })}>{lengths.map((h) => <option key={h}>{h}</option>)}</select>
       </label>
-      <label>Bay<select id={`${k}-bay`} value={f.bay} onChange={(e) => setF({ ...f, bay: e.target.value })}>{['1', '2', '3'].map((b) => <option key={b}>{b}</option>)}</select></label>
       <button className={`btn${initial ? '' : ' secondary'}`} disabled={disabled}>{label}</button>
     </form>
   );

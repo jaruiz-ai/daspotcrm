@@ -58,12 +58,14 @@ describe('regressions found in code review', () => {
     expect(r.status).toBeLessThan(500);
   });
 
-  it('BUG 4: losing a job leaves its future appointment blocking the bay', async () => {
+  it('BUG 4: losing a job leaves its future appointment on the schedule', async () => {
     const a = (await ctx.api.post('/api/leads', { contact: { mobile: nextPhone() }, vehicle: { make: 'Kia' } })).body;
     const b = (await ctx.api.post('/api/leads', { contact: { mobile: nextPhone() }, vehicle: { make: 'Kia' } })).body;
     const s = nextSlot(6);
     expect((await ctx.api.post(`/api/jobs/${a.job.id}/appointments`, s)).status).toBe(201);
     await move(a.job.id, 'lost', { lost_reason: 'no_response' });
+    const job = (await ctx.api.get(`/api/jobs/${a.job.id}`)).body;
+    expect(job.appointments.every((x: any) => x.status === 'cancelled')).toBe(true);
     expect((await ctx.api.post(`/api/jobs/${b.job.id}/appointments`, s)).status).toBe(201);
   });
 

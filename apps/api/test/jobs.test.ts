@@ -208,19 +208,15 @@ describe('money rules', () => {
 });
 
 describe('scheduling', () => {
-  it('stops double-booking a bay but allows back-to-back and other bays', async () => {
+  it('lets the shop book several cars at the same time (no bays)', async () => {
     const a = (await newLead()).job;
     const b = (await newLead()).job;
-    const s = nextSlot(2);
+    const s = nextSlot();
     expect((await ctx.api.post(`/api/jobs/${a.id}/appointments`, s)).status).toBe(201);
-    const clash = await ctx.api.post(`/api/jobs/${b.id}/appointments`, {
-      ...s, starts_at: new Date(new Date(s.starts_at).getTime() + 3600_000).toISOString(),
+    const overlap = await ctx.api.post(`/api/jobs/${b.id}/appointments`, {
+      starts_at: new Date(new Date(s.starts_at).getTime() + 3600_000).toISOString(),
       ends_at: new Date(new Date(s.ends_at).getTime() + 3600_000).toISOString() });
-    expect(clash.status).toBe(409);
-    expect(clash.body.error.code).toBe('bay_taken');
-    expect((await ctx.api.post(`/api/jobs/${b.id}/appointments`, { ...s, starts_at: s.ends_at,
-      ends_at: new Date(new Date(s.ends_at).getTime() + 3600_000).toISOString() })).status).toBe(201);
-    expect((await ctx.api.post(`/api/jobs/${b.id}/appointments`, { ...s, bay: 3 })).status).toBe(201);
+    expect(overlap.status).toBe(201);
   });
 
   it('rejects end before start', async () => {

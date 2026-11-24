@@ -93,7 +93,7 @@ export function buildIcs(rows: FeedAppointment[], opts: { calName: string; jobUr
       `DTSTART:${stamp(new Date(a.starts_at))}`,
       `DTEND:${stamp(new Date(a.ends_at))}`,
       `SUMMARY:${esc(`${who}${car ? ` · ${car}` : ''}`)}`,
-      `LOCATION:${esc(`Da Spot 214 · Bay ${a.bay}`)}`,
+      'LOCATION:Da Spot 214',
       `DESCRIPTION:${esc(details)}`,
       `URL:${opts.jobUrl(a.job_id)}`,
       'STATUS:CONFIRMED',

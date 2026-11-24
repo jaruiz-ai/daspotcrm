@@ -55,7 +55,8 @@ describe('calendar connection', () => {
     expect(ics).toContain('BEGIN:VCALENDAR');
     expect(ics).toContain(`UID:${r.body.appointment.id}@daspot214-crm`);
     expect(ics).toContain('SUMMARY:Rosa Delgado · 2022 Nissan Altima');
-    expect(ics).toContain('LOCATION:Da Spot 214 · Bay 2');
+    expect(ics).toContain('LOCATION:Da Spot 214');
+    expect(ics).not.toMatch(/Bay \d/);
     expect(ics).toContain('Services: Full tint');
     expect(ics).toContain('Note: Wants 35%\\, coming after work');
     expect(ics).toContain(`DTSTART:${soon(3, 20).replace(/[-:]/g, '').replace('.000', '')}`);

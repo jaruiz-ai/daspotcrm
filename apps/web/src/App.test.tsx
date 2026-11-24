@@ -274,12 +274,11 @@ describe('UI end to end', () => {
     await user.selectOptions(screen.getByLabelText('Service'), 'full_tint');
     await user.type(screen.getByLabelText('Price ($)'), '300');
     await user.selectOptions(screen.getByLabelText('Start'), '15:00');
-    await user.selectOptions(screen.getByLabelText('Bay'), '3');
     await user.click(screen.getByRole('button', { name: 'Book appointment' }));
     const sched = await screen.findByRole('region', { name: 'Schedule' });
     await waitFor(() => expect(within(sched).getByText('Rosa Delgado')).toBeTruthy());
     expect(within(sched).getByText('3:00 PM')).toBeTruthy();
-    expect(within(sched).getByText('Bay 3')).toBeTruthy();
+    expect(within(sched).queryByText(/Bay/)).toBeNull();
     expect(within(sched).getByText('Full tint')).toBeTruthy();
     expect(within(sched).getByText('Booked')).toBeTruthy();
   });
@@ -300,7 +299,6 @@ describe('UI end to end', () => {
     const quote = within(what).getByRole('radio', { name: new RegExp(`#${lead.job.number}`) }) as HTMLInputElement;
     expect(quote.checked).toBe(true);
     expect(screen.queryByLabelText('Make')).toBeNull(); // the quote already has the truck
-    await user.selectOptions(screen.getByLabelText('Bay'), '2');
     await user.selectOptions(screen.getByLabelText('Start'), '08:00');
     await user.click(screen.getByRole('button', { name: 'Book appointment' }));
     const sched = await screen.findByRole('region', { name: 'Schedule' });
@@ -341,12 +339,12 @@ describe('UI end to end', () => {
     expect(dateInput.value).toBe(day);
     await user.clear(dateInput);
     await user.type(dateInput, next);
-    await user.selectOptions(screen.getAllByLabelText('Bay').find((el) => el.id === 'move-bay')!, '3');
+    await user.selectOptions(screen.getAllByLabelText('Start').find((el) => el.id === 'move-time')!, '13:00');
     await user.click(screen.getByRole('button', { name: 'Move it' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Move it' })).toBeNull());
-    expect(screen.getByText(/Bay 3/)).toBeTruthy();
+    expect(screen.getByText(/1:00 PM to 3:00 PM/)).toBeTruthy();
     let job = await (await fetch(`/api/jobs/${out.job_id}`, { headers: H })).json();
-    expect(job.appointments[0].bay).toBe(3);
+    expect(new Date(job.appointments[0].starts_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })).toBe('1:00 PM');
     expect(new Date(job.appointments[0].starts_at).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })).toBe(next);
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -373,7 +371,7 @@ describe('UI end to end', () => {
     const col = await screen.findByRole('region', { name: longDay });
     const item = within(col).getByRole('link', { name: /Weekly Visitor/ });
     expect(item.getAttribute('href')).toBe(`#/jobs/${out.job_id}`);
-    expect(item.textContent).toMatch(/Bay 2/);
+    expect(item.textContent).not.toMatch(/Bay/);
     expect(screen.getAllByRole('region').length).toBeGreaterThanOrEqual(7);
   });
 });

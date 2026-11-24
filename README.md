@@ -1,6 +1,6 @@
 # Da Spot 214 CRM — Phase 1
 
-Shop CRM for a window tint and wrap shop: leads from texts and WhatsApp, quotes, bay scheduling,
+Shop CRM for a window tint and wrap shop: leads from texts and WhatsApp, quotes, scheduling,
 payments, Texas tint-law waivers, warranties and claims, and partner rev-share.
 
 ```
@@ -88,7 +88,7 @@ under 44pt, overlapping or crowded targets, and anything stuck under the bars or
 - Paid is never set by hand; a completed job moves to Paid when the balance hits $0, and that issues warranties.
 - Front side windows darker than 25% VLT need a signed acknowledgment before a job can be completed.
 - No overpayments, no refunds above what was paid, no price changes that drop the total below what was paid.
-- One appointment per bay per time slot; losing a job frees its future bay time.
+- Several cars can be booked at the same time (no bays). Losing a job cancels its future appointments; cancelling the last one puts a Booked job back to Quoted.
 - Warranties start on the shop-local (Dallas) day the job was completed.
 - Rev-share is paid on pre-tax collected revenue; refunds post negative ledger lines.
 - Webhook retries are idempotent (Twilio MessageSid); a failed auto-reply never loses the lead.

@@ -8,7 +8,7 @@ import { canMove, needsFrontSideWaiver, STAGES, type Stage } from '../lib/stages
 import { issueWarranties } from '../lib/warranty.js';
 import { recordRevShare } from '../lib/revshare.js';
 import { sendPaidReceipt } from '../lib/receipt.js';
-import { assertBayFree, bookAppointment, slotInput, unbookIfNoAppointments } from '../lib/booking.js';
+import { bookAppointment, slotInput, unbookIfNoAppointments } from '../lib/booking.js';
 import { assert, idParam, logActivity, optText } from './shared.js';
 
 const SERVICES = ['full_tint', 'front_two', 'windshield', 'sun_strip', 'pano_roof', 'removal', 'wrap',
@@ -307,7 +307,7 @@ export function jobsRouter({ db, sender }: Deps) {
       const status = b.reason === 'no_show' ? 'no_show' : 'cancelled';
       const row = (await q.query('UPDATE appointments SET status = $2 WHERE id = $1 RETURNING *', [id, status])).rows[0];
       await logActivity(q, 'job', appt.job_id, b.reason === 'no_show' ? 'appointment_no_show' : 'appointment_cancelled',
-        { appointment_id: id, reason: b.reason, starts_at: appt.starts_at, bay: appt.bay });
+        { appointment_id: id, reason: b.reason, starts_at: appt.starts_at });
       await unbookIfNoAppointments(q, appt.job_id);
       return row;
     });
@@ -325,12 +325,11 @@ export function jobsRouter({ db, sender }: Deps) {
       const job = await lockJob(q, appt.job_id);
       assert(['new_lead', 'quoted', 'booked'].includes(job.stage), 'job_not_bookable',
         'This job is already in the bay or finished, so its appointment can no longer move');
-      await assertBayFree(q, b.bay, b.starts_at, b.ends_at, id);
       const row = (await q.query(
-        `UPDATE appointments SET starts_at = $2, ends_at = $3, bay = $4, status = 'scheduled' WHERE id = $1 RETURNING *`,
-        [id, b.starts_at, b.ends_at, b.bay])).rows[0];
+        `UPDATE appointments SET starts_at = $2, ends_at = $3, status = 'scheduled' WHERE id = $1 RETURNING *`,
+        [id, b.starts_at, b.ends_at])).rows[0];
       await logActivity(q, 'job', appt.job_id, 'appointment_rescheduled', {
-        appointment_id: id, from: { starts_at: appt.starts_at, bay: appt.bay }, to: { starts_at: b.starts_at, bay: b.bay } });
+        appointment_id: id, from: { starts_at: appt.starts_at, ends_at: appt.ends_at }, to: { starts_at: b.starts_at, ends_at: b.ends_at } });
       return row;
     });
     res.json(out);
