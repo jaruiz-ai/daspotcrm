@@ -78,6 +78,7 @@ describe('UI end to end', () => {
 
     // Book: auto-moves to Booked.
     const date = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+    await user.clear(screen.getByLabelText('Date'));
     await user.type(screen.getByLabelText('Date'), date);
     await user.click(screen.getByRole('button', { name: 'Book' }));
     await user.click(await screen.findByRole('button', { name: 'Start install' }));
@@ -323,5 +324,56 @@ describe('UI end to end', () => {
     expect(feed.status).toBe(200);
     expect(await feed.text()).toContain('BEGIN:VCALENDAR');
     expect(localStorage.getItem('daspot.calendarName')).toBe('Johnathan');
+  });
+  it('job page: reschedule moves the appointment, cancel takes it off and the job goes back to Quoted', async () => {
+    const H = { authorization: 'Bearer ui-token', 'content-type': 'application/json' };
+    const day = new Date(Date.now() + 10 * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    const next = new Date(Date.now() + 11 * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    const out = await (await fetch('/api/appointments', { method: 'POST', headers: H, body: JSON.stringify({
+      contact: { mobile: '4695550777', first_name: 'Paola', last_name: 'Reyes' }, vehicle: { make: 'Mazda', model: 'CX-5' },
+      slot: { starts_at: `${day}T15:00:00.000Z`, ends_at: `${day}T17:00:00.000Z`, bay: 1 } }) })).json();
+
+    const user = userEvent.setup();
+    location.hash = `#/jobs/${out.job_id}`;
+    await signIn(user);
+    await user.click(await screen.findByRole('button', { name: 'Reschedule' }));
+    const dateInput = screen.getAllByLabelText('Date').find((el) => el.id === 'move-date') as HTMLInputElement;
+    expect(dateInput.value).toBe(day);
+    await user.clear(dateInput);
+    await user.type(dateInput, next);
+    await user.selectOptions(screen.getAllByLabelText('Bay').find((el) => el.id === 'move-bay')!, '3');
+    await user.click(screen.getByRole('button', { name: 'Move it' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Move it' })).toBeNull());
+    expect(screen.getByText(/Bay 3/)).toBeTruthy();
+    let job = await (await fetch(`/api/jobs/${out.job_id}`, { headers: H })).json();
+    expect(job.appointments[0].bay).toBe(3);
+    expect(new Date(job.appointments[0].starts_at).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })).toBe(next);
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    const sheet = await screen.findByRole('dialog');
+    expect(sheet.textContent).toMatch(/goes back to Quoted/);
+    await user.click(within(sheet).getByRole('button', { name: 'Yes, cancel it' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Reschedule' })).toBeNull());
+    job = await (await fetch(`/api/jobs/${out.job_id}`, { headers: H })).json();
+    expect(job.stage).toBe('quoted');
+    expect(job.appointments[0].status).toBe('cancelled');
+  });
+
+  it('home: 7 days shows the week by day and links each booking to its job', async () => {
+    const H = { authorization: 'Bearer ui-token', 'content-type': 'application/json' };
+    const day = new Date(Date.now() + 2 * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    const out = await (await fetch('/api/appointments', { method: 'POST', headers: H, body: JSON.stringify({
+      contact: { mobile: '2145550888', first_name: 'Weekly', last_name: 'Visitor' }, vehicle: { year: 2021, make: 'Jeep', model: 'Wrangler' },
+      slot: { starts_at: `${day}T21:00:00.000Z`, ends_at: `${day}T22:00:00.000Z`, bay: 2 } }) })).json();
+    const user = userEvent.setup();
+    await signIn(user);
+    await user.click(await screen.findByRole('link', { name: '7 days' }));
+    expect(await screen.findByRole('heading', { name: 'Next 7 days' })).toBeTruthy();
+    const longDay = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+    const col = await screen.findByRole('region', { name: longDay });
+    const item = within(col).getByRole('link', { name: /Weekly Visitor/ });
+    expect(item.getAttribute('href')).toBe(`#/jobs/${out.job_id}`);
+    expect(item.textContent).toMatch(/Bay 2/);
+    expect(screen.getAllByRole('region').length).toBeGreaterThanOrEqual(7);
   });
 });

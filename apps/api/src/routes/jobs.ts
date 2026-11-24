@@ -8,7 +8,7 @@ import { canMove, needsFrontSideWaiver, STAGES, type Stage } from '../lib/stages
 import { issueWarranties } from '../lib/warranty.js';
 import { recordRevShare } from '../lib/revshare.js';
 import { sendPaidReceipt } from '../lib/receipt.js';
-import { bookAppointment, slotInput } from '../lib/booking.js';
+import { assertBayFree, bookAppointment, slotInput, unbookIfNoAppointments } from '../lib/booking.js';
 import { assert, idParam, logActivity, optText } from './shared.js';
 
 const SERVICES = ['full_tint', 'front_two', 'windshield', 'sun_strip', 'pano_roof', 'removal', 'wrap',
@@ -299,15 +299,41 @@ export function jobsRouter({ db, sender }: Deps) {
 
   r.post('/appointments/:id/cancel', async (req, res) => {
     const id = idParam(req.params.id, 'Appointment');
-    const { rows } = await db.query(
-      `UPDATE appointments SET status = 'cancelled' WHERE id = $1 AND status IN ('scheduled','confirmed') RETURNING *`, [id]);
-    if (!rows[0]) {
-      const exists = await db.query('SELECT status FROM appointments WHERE id = $1', [id]);
-      if (!exists.rows[0]) throw notFound('Appointment');
-      throw conflict('not_cancellable', `Appointment is already ${exists.rows[0].status}`);
-    }
-    await logActivity(db, 'job', rows[0].job_id, 'appointment_cancelled', { appointment_id: id });
-    res.json(rows[0]);
+    const b = z.object({ reason: z.enum(['client_cancelled', 'shop_cancelled', 'no_show']).default('client_cancelled') }).parse(req.body ?? {});
+    const out = await db.tx(async (q) => {
+      const appt = (await q.query('SELECT * FROM appointments WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      if (!appt) throw notFound('Appointment');
+      if (!['scheduled', 'confirmed'].includes(appt.status)) throw conflict('not_cancellable', `Appointment is already ${appt.status.replace('_', ' ')}`);
+      const status = b.reason === 'no_show' ? 'no_show' : 'cancelled';
+      const row = (await q.query('UPDATE appointments SET status = $2 WHERE id = $1 RETURNING *', [id, status])).rows[0];
+      await logActivity(q, 'job', appt.job_id, b.reason === 'no_show' ? 'appointment_no_show' : 'appointment_cancelled',
+        { appointment_id: id, reason: b.reason, starts_at: appt.starts_at, bay: appt.bay });
+      await unbookIfNoAppointments(q, appt.job_id);
+      return row;
+    });
+    res.json(out);
+  });
+
+  r.post('/appointments/:id/reschedule', async (req, res) => {
+    const id = idParam(req.params.id, 'Appointment');
+    const b = slotInput.parse(req.body);
+    assert(new Date(b.ends_at) > new Date(b.starts_at), 'bad_time_range', 'End time must be after start time');
+    const out = await db.tx(async (q) => {
+      const appt = (await q.query('SELECT * FROM appointments WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      if (!appt) throw notFound('Appointment');
+      if (!['scheduled', 'confirmed'].includes(appt.status)) throw conflict('not_reschedulable', `Appointment is already ${appt.status.replace('_', ' ')}`);
+      const job = await lockJob(q, appt.job_id);
+      assert(['new_lead', 'quoted', 'booked'].includes(job.stage), 'job_not_bookable',
+        'This job is already in the bay or finished, so its appointment can no longer move');
+      await assertBayFree(q, b.bay, b.starts_at, b.ends_at, id);
+      const row = (await q.query(
+        `UPDATE appointments SET starts_at = $2, ends_at = $3, bay = $4, status = 'scheduled' WHERE id = $1 RETURNING *`,
+        [id, b.starts_at, b.ends_at, b.bay])).rows[0];
+      await logActivity(q, 'job', appt.job_id, 'appointment_rescheduled', {
+        appointment_id: id, from: { starts_at: appt.starts_at, bay: appt.bay }, to: { starts_at: b.starts_at, bay: b.bay } });
+      return row;
+    });
+    res.json(out);
   });
 
   r.post('/jobs/:id/payments', async (req, res) => {

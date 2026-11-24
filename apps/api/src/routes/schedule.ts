@@ -84,6 +84,29 @@ export function scheduleRouter({ db }: Deps) {
     });
   });
 
+  /** Seven shop-local days of appointments starting at ?start (today by default), grouped by day. */
+  r.get('/week', async (req, res) => {
+    const start = z.iso.date().catch(shopToday()).parse(req.query.start ?? shopToday());
+    const { rows } = await db.query(
+      `SELECT ((a.starts_at AT TIME ZONE '${SHOP_TZ}')::date)::text AS day,
+              a.id AS appointment_id, a.starts_at, a.ends_at, a.bay, a.status AS appointment_status,
+              j.id, j.number, j.stage, c.first_name, c.last_name, c.mobile, v.year, v.make, v.model,
+              ARRAY(SELECT li.service FROM job_line_items li WHERE li.job_id = j.id ORDER BY li.service) AS services
+         FROM appointments a
+         JOIN jobs j ON j.id = a.job_id
+         JOIN contacts c ON c.id = j.contact_id
+         LEFT JOIN vehicles v ON v.id = j.vehicle_id
+        WHERE a.status NOT IN ('cancelled','no_show')
+          AND a.starts_at >= (($1::date)::timestamp AT TIME ZONE '${SHOP_TZ}')
+          AND a.starts_at <  (($1::date + 7)::timestamp AT TIME ZONE '${SHOP_TZ}')
+        ORDER BY a.starts_at, a.bay`, [start]);
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const date = new Date(Date.parse(`${start}T12:00:00Z`) + i * 864e5).toISOString().slice(0, 10);
+      return { date, appointments: rows.filter((r) => r.day === date) };
+    });
+    res.json({ start, today: shopToday(), days });
+  });
+
   /**
    * Add appointment: client (existing or new, matched by mobile) + vehicle + optional service,
    * booked into a bay in one transaction. Lands in Booked on the pipeline.

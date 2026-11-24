@@ -87,9 +87,11 @@ export default function App() {
   let page: ReactNode;
   const jobMatch = route.match(/^\/jobs\/([0-9a-f-]{36})$/);
   const dayMatch = route.match(/^\/day\/(\d{4}-\d{2}-\d{2})$/);
+  const weekMatch = route.match(/^\/week(?:\/(\d{4}-\d{2}-\d{2}))?$/);
   const bookMatch = route.match(/^\/book(?:\/(\d{4}-\d{2}-\d{2}))?$/);
   if (jobMatch) page = <JobPage id={jobMatch[1]} />;
   else if (dayMatch) page = <Today day={dayMatch[1]} />;
+  else if (weekMatch) page = <Week start={weekMatch[1]} />;
   else if (bookMatch) page = <AddAppointment day={bookMatch[1]} />;
   else if (route === '/pipeline') page = <Board />;
   else if (route === '/calendar') page = <ConnectCalendar />;
@@ -99,7 +101,7 @@ export default function App() {
   else page = <Today />;
 
   const nav = [['#/', 'Today'], ['#/pipeline', 'Pipeline'], ['#/warranty', 'Warranties']];
-  const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/day/')
+  const active = (href: string) => (href === '#/' ? route === '/' || route.startsWith('/day/') || route.startsWith('/week')
     : href === '#/pipeline' ? route === '/pipeline' || route.startsWith('/jobs') || route === '/new'
     : href === '#/book' ? route.startsWith('/book') : `#${route}` === href);
   return (
@@ -254,6 +256,8 @@ function JobCard({ j }: { j: any }) {
 const SHOP_TZ = 'America/Chicago';
 const shopTime = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: SHOP_TZ });
+const shopWhen = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: SHOP_TZ });
 /** 'YYYY-MM-DD' shifted by whole days (calendar math at noon UTC, so DST never moves the date). */
 const addDays = (day: string, n: number) =>
   new Date(Date.parse(`${day}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
@@ -280,6 +284,7 @@ function Today({ day }: { day?: string }) {
   const owed = (data?.to_collect ?? []).reduce((n: number, j: any) => n + j.balance_cents, 0);
   return (
     <div className="today">
+      <ViewSwitch view="day" date={date} today={data?.today} />
       <div className="page-head">
         <div>
           <h1>{date ? dayLabel(date, data.today) : 'Today'}</h1>
@@ -361,6 +366,71 @@ function Today({ day }: { day?: string }) {
             Connect your phone calendar
           </a>
         </>
+      )}
+    </div>
+  );
+}
+
+/** Day / 7 days switch at the top of the home screen. */
+function ViewSwitch({ view, date, today }: { view: 'day' | 'week'; date?: string; today?: string }) {
+  const notToday = date && today && date !== today;
+  return (
+    <nav className="seg view-switch" aria-label="Schedule view">
+      <a href={notToday ? `#/day/${date}` : '#/'} aria-current={view === 'day' ? 'page' : undefined}>Day</a>
+      <a href={notToday ? `#/week/${date}` : '#/week'} aria-current={view === 'week' ? 'page' : undefined}>7 days</a>
+    </nav>
+  );
+}
+
+const shortDay = (day: string) =>
+  new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+function Week({ start }: { start?: string }) {
+  const { data, error } = useLoad(() => api(`/week${start ? `?start=${start}` : ''}`), [start]);
+  const first: string | undefined = data?.start;
+  const go = (d: string) => { location.hash = d === data?.today ? '#/week' : `#/week/${d}`; };
+  const total = data ? data.days.reduce((n: number, d: any) => n + d.appointments.length, 0) : 0;
+  return (
+    <div className="today week">
+      <ViewSwitch view="week" date={first} today={data?.today} />
+      <div className="page-head">
+        <div>
+          <h1>{first && first === data.today ? 'Next 7 days' : '7 days'}</h1>
+          {first && <p className="muted">{shortDay(first)} to {shortDay(addDays(first, 6))} · {total} {total === 1 ? 'appointment' : 'appointments'}</p>}
+        </div>
+        <a className="btn add-appt" href="#/book">Add appointment</a>
+      </div>
+      {first && (
+        <div className="day-nav" role="group" aria-label="Change week">
+          <button type="button" className="btn secondary" onClick={() => go(addDays(first, -7))} aria-label="Previous 7 days">‹</button>
+          <button type="button" className="btn secondary day-today" onClick={() => go(data.today)} disabled={first === data.today}>From today</button>
+          <button type="button" className="btn secondary" onClick={() => go(addDays(first, 7))} aria-label="Next 7 days">›</button>
+        </div>
+      )}
+      {error && <div className="error" role="alert">{error}</div>}
+      {!data && !error && <p className="muted">Loading the week…</p>}
+      {data && (
+        <div className="week-grid">
+          {data.days.map((d: any) => (
+            <section key={d.date} className={`week-day${d.date === data.today ? ' is-today' : ''}`} aria-label={longDate(d.date)}>
+              <a className="week-head" href={d.date === data.today ? '#/' : `#/day/${d.date}`}>
+                <span className="week-dow">{new Date(`${d.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })}</span>
+                <span className="week-date">{Number(d.date.slice(8))}</span>
+                <span className="week-count">{d.appointments.length || ''}</span>
+              </a>
+              <div className="week-body">
+                {d.appointments.map((a: any) => (
+                  <a key={a.appointment_id} className={`week-item${a.stage === 'paid' ? ' done' : ''}`} href={`#/jobs/${a.id}`}>
+                    <span className="week-time">{shopTime(a.starts_at)} · Bay {a.bay}</span>
+                    <span className="who">{personName(a)}</span>
+                    <span className="vehicle">{vehicleName(a) || [...new Set<string>(a.services)].map((x) => SERVICES[x] ?? x).join(', ') || 'Vehicle not added'}</span>
+                  </a>
+                ))}
+                {d.appointments.length === 0 && <a className="week-open" href={`#/book/${d.date}`}>Open · Book</a>}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -782,6 +852,7 @@ function JobPage({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
   const closeAsk = useCallback(() => setAsk(null), []);
+  const [moving, setMoving] = useState<string | null>(null);
   const moreRef = useRef<HTMLDetailsElement>(null);
 
   // The More menu closes when you tap anywhere else, so it never sits over the page by accident.
@@ -813,6 +884,7 @@ function JobPage({ id }: { id: string }) {
   if (error) return <div className="error" role="alert">{error}</div>;
   if (!job) return <p className="muted">Loading job…</p>;
   const locked = job.stage === 'paid' || job.stage === 'lost';
+  const liveAppts = job.appointments.filter((a: any) => a.status !== 'cancelled');
   const stageIndex = STAGES.findIndex((x) => x.key === job.stage);
   const primary = NEXT[job.stage]?.main;
   const secondary = NEXT[job.stage]?.more ?? [];
@@ -939,27 +1011,49 @@ function JobPage({ id }: { id: string }) {
           {!locked && (
             <section className="panel">
               <div className="panel-head"><h2>Appointment</h2></div>
-              {job.appointments.filter((a: any) => a.status !== 'cancelled').length > 0 && (
+              {liveAppts.length > 0 && (
                 <div className="list">
-                  {job.appointments.filter((a: any) => a.status !== 'cancelled').map((a: any) => (
-                    <div key={a.id} className="list-row">
-                      <div className="main">
-                        <span>{when(a.starts_at)} to {new Date(a.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
-                        <span className="faint small">Bay {a.bay}</span>
+                  {liveAppts.map((a: any) => {
+                    const movable = ['scheduled', 'confirmed'].includes(a.status) && ['new_lead', 'quoted', 'booked'].includes(job.stage);
+                    const started = Date.parse(a.starts_at) <= Date.now();
+                    const onlyOne = job.stage === 'booked' && liveAppts.filter((x: any) => ['scheduled', 'confirmed'].includes(x.status)).length === 1;
+                    const back = onlyOne ? ' The job goes back to Quoted so it can be booked again.' : '';
+                    return (
+                      <div key={a.id} className="appt-row">
+                        <div className="list-row">
+                          <div className="main">
+                            <span>{shopWhen(a.starts_at)} to {shopTime(a.ends_at)}</span>
+                            <span className="faint small">Bay {a.bay}{a.status === 'no_show' ? ' · No-show' : ''}</span>
+                          </div>
+                          {movable && (
+                            <div className="appt-actions">
+                              <button className="btn secondary sm" disabled={busy} aria-expanded={moving === a.id}
+                                onClick={() => setMoving(moving === a.id ? null : a.id)}>Reschedule</button>
+                              <button className="btn ghost sm" disabled={busy} onClick={() => setAsk({
+                                title: started ? 'Did the client not show up?' : 'Cancel this appointment?', danger: true,
+                                body: `${shopWhen(a.starts_at)}, bay ${a.bay}. The bay opens up for other jobs and it comes off the calendar.${back}`,
+                                confirm: started ? 'Mark no-show' : 'Yes, cancel it', keep: 'Keep it',
+                                run: () => run(`/appointments/${a.id}/cancel`, { reason: started ? 'no_show' : 'client_cancelled' }) })}>
+                                {started ? 'No-show' : 'Cancel'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {moving === a.id && (
+                          <div className="panel-foot appt-move">
+                            <SlotForm label="Move it" disabled={busy} initial={a}
+                              onSave={async (b) => { const ok = await run(`/appointments/${a.id}/reschedule`, b); if (ok) setMoving(null); return ok; }} />
+                          </div>
+                        )}
                       </div>
-                      {['scheduled', 'confirmed'].includes(a.status) && (
-                        <button className="btn ghost sm" disabled={busy} onClick={() => setAsk({ title: 'Cancel this appointment?', danger: true,
-                          body: `${when(a.starts_at)}, bay ${a.bay}. The bay opens up for other jobs.`, confirm: 'Yes, cancel it', keep: 'Keep it',
-                          run: () => run(`/appointments/${a.id}/cancel`, {}) })}>Cancel</button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
-              {['new_lead', 'quoted', 'booked'].includes(job.stage) && (
-                <div className="panel-foot"><AppointmentForm disabled={busy} onBook={(b) => run(`/jobs/${id}/appointments`, b)} /></div>
+              {['new_lead', 'quoted', 'booked'].includes(job.stage) && !liveAppts.some((a: any) => ['scheduled', 'confirmed'].includes(a.status)) && (
+                <div className="panel-foot"><SlotForm label="Book" disabled={busy} onSave={(b) => run(`/jobs/${id}/appointments`, b)} /></div>
               )}
-              {!['new_lead', 'quoted', 'booked'].includes(job.stage) && job.appointments.filter((a: any) => a.status !== 'cancelled').length === 0 && (
+              {!['new_lead', 'quoted', 'booked'].includes(job.stage) && liveAppts.length === 0 && (
                 <p className="empty">No appointment on file.</p>
               )}
             </section>
@@ -1092,24 +1186,40 @@ function LineItemForm({ films, onAdd, disabled }: { films: any[]; onAdd: (b: obj
   );
 }
 
-function AppointmentForm({ onBook, disabled }: { onBook: (b: object) => Promise<boolean>; disabled: boolean }) {
-  const [f, setF] = useState({ date: '', time: '10:00', hours: '2', bay: '1' });
+/** Date, start, length and bay in shop time. Books a new slot, or moves one when `initial` is given. */
+function SlotForm({ onSave, disabled, label, initial }: {
+  onSave: (b: object) => Promise<boolean>; disabled: boolean; label: string; initial?: { starts_at: string; ends_at: string; bay: number };
+}) {
+  const shopParts = (iso: string) => {
+    const d = new Date(iso);
+    const date = d.toLocaleDateString('en-CA', { timeZone: SHOP_TZ });
+    const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: SHOP_TZ });
+    return { date, time };
+  };
+  const [f, setF] = useState(() => {
+    if (!initial) return { date: shopTodayIso(), time: '10:00', hours: '2', bay: '1' };
+    const { date, time } = shopParts(initial.starts_at);
+    const hours = String((Date.parse(initial.ends_at) - Date.parse(initial.starts_at)) / 3600_000);
+    return { date, time, hours, bay: String(initial.bay) };
+  });
+  const times = START_TIMES.some((t) => t.value === f.time) ? START_TIMES
+    : [...START_TIMES, { value: f.time, label: f.time }].sort((x, y) => x.value.localeCompare(y.value));
+  const lengths = ['1', '1.5', '2', '3', '4', '6', '8'].includes(f.hours) ? ['1', '1.5', '2', '3', '4', '6', '8'] : [f.hours, '1', '1.5', '2', '3', '4', '6', '8'];
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    // Built from the device's local time, then sent as an ISO instant.
-    const start = new Date(`${f.date}T${f.time}`);
-    const end = new Date(start.getTime() + Number(f.hours) * 3600_000);
-    await onBook({ starts_at: start.toISOString(), ends_at: end.toISOString(), bay: Number(f.bay) });
+    const starts = shopInstant(f.date, f.time);
+    await onSave({ starts_at: starts, ends_at: new Date(Date.parse(starts) + Number(f.hours) * 3600_000).toISOString(), bay: Number(f.bay) });
   };
+  const k = initial ? 'move' : 'appt';
   return (
     <form className="fields" onSubmit={submit}>
-      <label>Date<input id="appt-date" type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required /></label>
-      <label>Start<input id="appt-time" type="time" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} required /></label>
+      <label>Date<input id={`${k}-date`} type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required /></label>
+      <label>Start<select id={`${k}-time`} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })}>{times.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
       <label>Hours
-        <select id="appt-hours" value={f.hours} onChange={(e) => setF({ ...f, hours: e.target.value })}>{['1', '1.5', '2', '3', '4', '6', '8'].map((h) => <option key={h}>{h}</option>)}</select>
+        <select id={`${k}-hours`} value={f.hours} onChange={(e) => setF({ ...f, hours: e.target.value })}>{lengths.map((h) => <option key={h}>{h}</option>)}</select>
       </label>
-      <label>Bay<select id="appt-bay" value={f.bay} onChange={(e) => setF({ ...f, bay: e.target.value })}>{['1', '2', '3'].map((b) => <option key={b}>{b}</option>)}</select></label>
-      <button className="btn secondary" disabled={disabled}>Book</button>
+      <label>Bay<select id={`${k}-bay`} value={f.bay} onChange={(e) => setF({ ...f, bay: e.target.value })}>{['1', '2', '3'].map((b) => <option key={b}>{b}</option>)}</select></label>
+      <button className={`btn${initial ? '' : ' secondary'}`} disabled={disabled}>{label}</button>
     </form>
   );
 }
