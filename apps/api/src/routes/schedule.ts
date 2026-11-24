@@ -6,6 +6,7 @@ import { jobTotals } from '../lib/money.js';
 import { SHOP_TZ } from '../lib/warranty.js';
 import { assertOwnedSubject, lockJob } from './jobs.js';
 import { idParam, insertVehicle, logActivity, optText, phone, vehicleInput } from './shared.js';
+import { appointmentMailer } from './notify.js';
 
 const SERVICE = z.enum(['full_tint', 'front_two', 'windshield', 'sun_strip', 'pano_roof', 'removal', 'wrap',
   'chrome_delete', 'lights', 'flat_glass', 'other']);
@@ -22,6 +23,10 @@ const newAppointmentInput = z.object({
     last_name: optText,
     language: z.enum(['en', 'es']).default('en'),
   }).optional(),
+  /** Client's email for the confirmation. Saved on their profile (replacing an older one). */
+  email: z.preprocess((v) => (v === '' ? null : v), z.email().nullish()),
+  /** Send the confirmation email (default yes when the client has an email). */
+  notify: z.boolean().default(true),
   vehicle_id: z.uuid().nullish(),
   vehicle: vehicleInput.optional(),
   service: SERVICE.nullish(),
@@ -31,7 +36,9 @@ const newAppointmentInput = z.object({
   slot: slotInput,
 }).refine((b) => b.job_id || b.contact, { message: 'Pick a client or enter their mobile number', path: ['contact'] });
 
-export function scheduleRouter({ db }: Deps) {
+export function scheduleRouter(deps: Deps) {
+  const { db } = deps;
+  const mail = appointmentMailer(deps);
   const r = Router();
 
   /**
@@ -162,10 +169,11 @@ export function scheduleRouter({ db }: Deps) {
       if (noteParts.length) {
         await q.query(`INSERT INTO notes (subject_type, subject_id, body) VALUES ('job', $1, $2)`, [job.id, noteParts.join('. ')]);
       }
+      if (b.email) await q.query('UPDATE contacts SET email = $2, updated_at = now() WHERE id = $1', [job.contact_id, b.email]);
       const appointment = await bookAppointment(q, job, b.slot);
       return { job_id: job.id, job_number: job.number, created_job: created, appointment };
     });
-    res.status(201).json(out);
+    res.status(201).json({ ...out, email: await mail(out.appointment.id, 'booked', b.notify) });
   });
 
   /** Open jobs (lead, quote, booked) for one client, so a booking can attach to the right one. */

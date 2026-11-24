@@ -374,4 +374,25 @@ describe('UI end to end', () => {
     expect(item.textContent).not.toMatch(/Bay/);
     expect(screen.getAllByRole('region').length).toBeGreaterThanOrEqual(7);
   });
+  it('booking with an email confirms it on screen; the job page can add a missing email', async () => {
+    const user = userEvent.setup();
+    location.hash = '#/book';
+    await signIn(user);
+    await user.click(await screen.findByRole('tab', { name: 'New client' }));
+    await user.type(screen.getByLabelText('Mobile'), '(214) 555-6444');
+    await user.type(screen.getByLabelText('First name'), 'Mia');
+    const box = screen.getByRole('checkbox') as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    await user.type(screen.getByLabelText("Client's email"), 'mia@example.com');
+    expect(box.checked).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Book appointment' }));
+    expect((await screen.findByRole('status')).textContent).toBe('Test mode: the confirmation email to mia@example.com was written but not sent.');
+
+    const H = { authorization: 'Bearer ui-token', 'content-type': 'application/json' };
+    const lead = await (await fetch('/api/leads', { method: 'POST', headers: H, body: JSON.stringify({ contact: { mobile: '2145556555', first_name: 'Noel' } }) })).json();
+    location.hash = `#/jobs/${lead.job.id}`;
+    await user.type(await screen.findByLabelText("Add the client's email to send confirmations"), 'noel@example.com');
+    await user.click(screen.getByRole('button', { name: 'Save email' }));
+    expect(await screen.findByText('noel@example.com')).toBeTruthy();
+  });
 });

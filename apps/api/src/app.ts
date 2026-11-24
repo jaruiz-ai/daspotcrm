@@ -5,6 +5,7 @@ import path from 'node:path';
 import { z, ZodError } from 'zod';
 import type { Db } from './db/index.js';
 import type { MessageSender } from './lib/messaging.js';
+import { FakeEmailSender, type EmailSender } from './lib/email.js';
 import { HttpError, fromPgError } from './lib/errors.js';
 import { contactsRouter } from './routes/contacts.js';
 import { jobsRouter } from './routes/jobs.js';
@@ -24,6 +25,9 @@ export interface AppConfig {
   publicBaseUrl: string;
   /** Signs calendar subscription links. Falls back to the staff token when not set. */
   calendarSecret?: string;
+  /** Shop phone and address, printed in client emails. Left out when not set. */
+  shopPhone?: string;
+  shopAddress?: string;
   /** Built web app (apps/web/dist). When set, the API also serves the staff app from the same address. */
   webDir?: string;
 }
@@ -32,9 +36,12 @@ export interface Deps {
   db: Db;
   sender: MessageSender;
   config: AppConfig;
+  /** Client emails (booking confirmations). Defaults to a recorder that sends nothing. */
+  email?: EmailSender;
 }
 
-export function createApp(deps: Deps) {
+export function createApp(input: Deps) {
+  const deps: Deps = { ...input, email: input.email ?? new FakeEmailSender() };
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);

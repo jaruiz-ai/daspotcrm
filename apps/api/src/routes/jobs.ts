@@ -9,6 +9,7 @@ import { issueWarranties } from '../lib/warranty.js';
 import { recordRevShare } from '../lib/revshare.js';
 import { sendPaidReceipt } from '../lib/receipt.js';
 import { bookAppointment, slotInput, unbookIfNoAppointments } from '../lib/booking.js';
+import { appointmentMailer } from './notify.js';
 import { assert, idParam, logActivity, optText } from './shared.js';
 
 const SERVICES = ['full_tint', 'front_two', 'windshield', 'sun_strip', 'pano_roof', 'removal', 'wrap',
@@ -40,7 +41,7 @@ export async function lockJob(q: Queryable, id: string) {
 
 async function jobDetail(q: Queryable, id: string) {
   const { rows } = await q.query(
-    `SELECT j.*, c.first_name, c.last_name, c.mobile, c.language,
+    `SELECT j.*, c.first_name, c.last_name, c.mobile, c.language, c.email,
             v.year AS vehicle_year, v.make AS vehicle_make, v.model AS vehicle_model, v.plate AS vehicle_plate,
             p.address AS property_address
        FROM jobs j JOIN contacts c ON c.id = j.contact_id
@@ -98,7 +99,9 @@ async function afterPriceChange(q: Queryable, jobId: string) {
   await settleIfPaid(q, jobId);
 }
 
-export function jobsRouter({ db, sender }: Deps) {
+export function jobsRouter(deps: Deps) {
+  const { db, sender } = deps;
+  const mail = appointmentMailer(deps);
   /** After a change commits: if it just made the job Paid, text the customer their receipt. */
   const receiptIfNewlyPaid = async (before: string, after: { id: string; stage: string }) => {
     if (before !== 'paid' && after.stage === 'paid') await sendPaidReceipt({ db, sender }, after.id);
@@ -293,13 +296,17 @@ export function jobsRouter({ db, sender }: Deps) {
   r.post('/jobs/:id/appointments', async (req, res) => {
     const id = idParam(req.params.id, 'Job');
     const b = slotInput.parse(req.body);
+    const notify = z.object({ notify: z.boolean().default(true) }).parse(req.body ?? {}).notify;
     const out = await db.tx(async (q) => bookAppointment(q, await lockJob(q, id), b));
-    res.status(201).json(out);
+    res.status(201).json({ ...out, email: await mail(out.id, 'booked', notify) });
   });
 
   r.post('/appointments/:id/cancel', async (req, res) => {
     const id = idParam(req.params.id, 'Appointment');
-    const b = z.object({ reason: z.enum(['client_cancelled', 'shop_cancelled', 'no_show']).default('client_cancelled') }).parse(req.body ?? {});
+    const b = z.object({
+      reason: z.enum(['client_cancelled', 'shop_cancelled', 'no_show']).default('client_cancelled'),
+      notify: z.boolean().default(true),
+    }).parse(req.body ?? {});
     const out = await db.tx(async (q) => {
       const appt = (await q.query('SELECT * FROM appointments WHERE id = $1 FOR UPDATE', [id])).rows[0];
       if (!appt) throw notFound('Appointment');
@@ -311,12 +318,14 @@ export function jobsRouter({ db, sender }: Deps) {
       await unbookIfNoAppointments(q, appt.job_id);
       return row;
     });
-    res.json(out);
+    // A no-show already missed the time, so there is nothing to tell them about it by email.
+    res.json({ ...out, email: await mail(id, 'cancelled', b.notify && b.reason !== 'no_show') });
   });
 
   r.post('/appointments/:id/reschedule', async (req, res) => {
     const id = idParam(req.params.id, 'Appointment');
     const b = slotInput.parse(req.body);
+    const notify = z.object({ notify: z.boolean().default(true) }).parse(req.body ?? {}).notify;
     assert(new Date(b.ends_at) > new Date(b.starts_at), 'bad_time_range', 'End time must be after start time');
     const out = await db.tx(async (q) => {
       const appt = (await q.query('SELECT * FROM appointments WHERE id = $1 FOR UPDATE', [id])).rows[0];
@@ -332,7 +341,7 @@ export function jobsRouter({ db, sender }: Deps) {
         appointment_id: id, from: { starts_at: appt.starts_at, ends_at: appt.ends_at }, to: { starts_at: b.starts_at, ends_at: b.ends_at } });
       return row;
     });
-    res.json(out);
+    res.json({ ...out, email: await mail(id, 'moved', notify) });
   });
 
   r.post('/jobs/:id/payments', async (req, res) => {

@@ -5,6 +5,7 @@ import { createMemoryDb, createPgDb, migrate } from './db/index.js';
 import { seed } from './db/seed.js';
 import { loadDemoData } from './demo.js';
 import { FakeSender, TwilioSender, type MessageSender } from './lib/messaging.js';
+import { ResendSender } from './lib/email.js';
 
 /**
  * Vercel Function entry. One app per warm instance, built on the first request.
@@ -40,12 +41,15 @@ async function build(): Promise<Express> {
   const app = createApp({
     db,
     sender,
+    email: env.RESEND_API_KEY ? new ResendSender(env.RESEND_API_KEY, env.EMAIL_FROM ?? 'Da Spot 214 <bookings@daspot214.com>', env.EMAIL_REPLY_TO) : undefined,
     config: {
       staffToken,
       // Test site: signature checks are off so sample texts can be posted to the webhook by hand.
       twilioAuthToken: demo ? '' : env.TWILIO_AUTH_TOKEN!,
       publicBaseUrl: env.PUBLIC_BASE_URL ?? '',
       calendarSecret: env.CALENDAR_SECRET,
+      shopPhone: env.SHOP_PHONE,
+      shopAddress: env.SHOP_ADDRESS,
     },
   });
   if (demo) await loadDemoData(db, app, staffToken);

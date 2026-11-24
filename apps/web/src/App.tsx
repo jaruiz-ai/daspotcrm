@@ -256,6 +256,19 @@ function JobCard({ j }: { j: any }) {
 const SHOP_TZ = 'America/Chicago';
 const shopTime = (iso: string) =>
   new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: SHOP_TZ });
+/** One-time message shown on the next screen (for example after booking). */
+const FLASH_KEY = 'daspot.flash';
+const flash = (msg: string | null) => { if (msg) try { sessionStorage.setItem(FLASH_KEY, msg); } catch { /* private mode */ } };
+const takeFlash = () => { try { const m = sessionStorage.getItem(FLASH_KEY); sessionStorage.removeItem(FLASH_KEY); return m; } catch { return null; } };
+type EmailResult = { status: 'sent'; to: string; live: boolean } | { status: 'no_email' } | { status: 'skipped' } | { status: 'failed'; to: string };
+/** What happened to the client email, in one line for staff. */
+function emailNote(e: EmailResult | undefined, kind: 'booked' | 'moved' | 'cancelled'): string | null {
+  if (!e || e.status === 'skipped') return null;
+  const what = kind === 'booked' ? 'Confirmation' : kind === 'moved' ? 'New time' : 'Cancellation';
+  if (e.status === 'no_email') return kind === 'booked' ? 'Booked. No email on file, so no confirmation was sent.' : null;
+  if (e.status === 'failed') return `${what} email to ${e.to} didn't go out. A task was added to reach them another way.`;
+  return e.live ? `${what} emailed to ${e.to}.` : `Test mode: the ${what.toLowerCase()} email to ${e.to} was written but not sent.`;
+}
 const shopWhen = (iso: string) =>
   new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: SHOP_TZ });
 /** 'YYYY-MM-DD' shifted by whole days (calendar math at noon UTC, so DST never moves the date). */
@@ -276,6 +289,7 @@ function shopInstant(day: string, hhmm: string) {
 }
 
 function Today({ day }: { day?: string }) {
+  const [note] = useState(takeFlash);
   const { data, error } = useLoad(() => api(`/today${day ? `?date=${day}` : ''}`), [day]);
   const date: string | undefined = data?.date;
   const go = (d: string) => { location.hash = d === data?.today ? '#/' : `#/day/${d}`; };
@@ -299,6 +313,7 @@ function Today({ day }: { day?: string }) {
           <button type="button" className="btn secondary" onClick={() => go(addDays(date, 1))} aria-label="Next day">›</button>
         </div>
       )}
+      {note && <div className="flash" role="status">{note}</div>}
       {error && <div className="error" role="alert">{error}</div>}
       {!data && !error && <p className="muted">Loading the day…</p>}
       {data && (
@@ -464,12 +479,13 @@ function AddAppointment({ day }: { day?: string }) {
   const [jobId, setJobId] = useState<string>(''); // '' = something new
   const [vehicleId, setVehicleId] = useState<string>(''); // '' = another vehicle
   const [f, setF] = useState({
-    mobile: '', first_name: '', last_name: '', language: 'en',
+    mobile: '', first_name: '', last_name: '', language: 'en', email: '',
     year: '', make: '', model: '', service: '', price: '', note: '',
     date: day ?? shopTodayIso(), time: '10:00', hours: '2',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notify, setNotify] = useState(true);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
 
   // Search clients by name or phone as the owner types.
@@ -486,6 +502,7 @@ function AddAppointment({ day }: { day?: string }) {
 
   const choose = async (c: any) => {
     setClient(c);
+    setF((x) => ({ ...x, email: c.email ?? '' }));
     setResults(null);
     setError(null);
     try {
@@ -518,9 +535,12 @@ function AddAppointment({ day }: { day?: string }) {
     const hasVehicle = f.year || f.make || f.model;
     const price = f.price.trim() ? Math.round(Number(f.price.replace(/[$,]/g, '')) * 100) : null;
     if (price != null && !Number.isFinite(price)) { setBusy(false); setError('Price should be a number, like 300 or 249.99.'); return; }
+    const email = f.email.trim();
     const body: Record<string, unknown> = bookingExisting
-      ? { job_id: jobId, note: f.note, slot }
+      ? { job_id: jobId, note: f.note, slot, email: email || undefined, notify }
       : {
+          email: email || undefined,
+          notify,
           contact: mode === 'existing'
             ? { mobile: client.mobile }
             : { mobile: f.mobile, first_name: f.first_name, last_name: f.last_name, language: f.language },
@@ -532,7 +552,8 @@ function AddAppointment({ day }: { day?: string }) {
           slot,
         };
     try {
-      await api('/appointments', { body });
+      const out = await api('/appointments', { body });
+      flash(emailNote(out.email, 'booked'));
       location.hash = f.date === shopTodayIso() ? '#/' : `#/day/${f.date}`;
     } catch (err) {
       setError((err as Error).message);
@@ -595,6 +616,19 @@ function AddAppointment({ day }: { day?: string }) {
               </div>
             )}
           </fieldset>
+
+          {(mode === 'new' || client) && (
+            <fieldset>
+              <legend>Confirmation</legend>
+              <label>Client's email
+                <input id="appt-email" type="email" inputMode="email" autoCapitalize="off" autoComplete="off" value={f.email} onChange={set('email')} placeholder="name@example.com" />
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={notify && !!f.email.trim()} disabled={!f.email.trim()} onChange={(e) => setNotify(e.target.checked)} />
+                {f.email.trim() ? 'Email them a confirmation with a calendar invite' : 'Add an email to send a confirmation'}
+              </label>
+            </fieldset>
+          )}
 
           {client && openJobs.length > 0 && (
             <fieldset>
@@ -851,6 +885,15 @@ function JobPage({ id }: { id: string }) {
   const [ask, setAsk] = useState<Ask | null>(null);
   const closeAsk = useCallback(() => setAsk(null), []);
   const [moving, setMoving] = useState<string | null>(null);
+  const [mailNote, setMailNote] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
+  /** Appointment changes: run them, then say what happened to the client's email. */
+  const apptRun = async (path: string, body: object, kind: 'booked' | 'moved' | 'cancelled') => {
+    setMailNote(null);
+    const out = await run(path, body);
+    if (out && typeof out === 'object') setMailNote(emailNote(out.email, kind));
+    return !!out;
+  };
   const moreRef = useRef<HTMLDetailsElement>(null);
 
   // The More menu closes when you tap anywhere else, so it never sits over the page by accident.
@@ -870,7 +913,7 @@ function JobPage({ id }: { id: string }) {
     try {
       const out = await api(path, { method, body });
       if (out && out.id === id) setData(out); else setData(await api(`/jobs/${id}`));
-      return true;
+      return out ?? true;
     } catch (err) {
       setActionError((err as Error).message);
       return false;
@@ -1012,6 +1055,23 @@ function JobPage({ id }: { id: string }) {
           {!locked && (
             <section className="panel">
               <div className="panel-head"><h2>Appointment</h2></div>
+              <div className="appt-email">
+                {job.email
+                  ? <span className="faint small">Confirmations go to <strong>{job.email}</strong></span>
+                  : (
+                    <form className="appt-email-add" onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (await run(`/contacts/${job.contact_id}`, { email: emailDraft.trim() }, 'PATCH')) setEmailDraft('');
+                    }}>
+                      <label>Add the client's email to send confirmations
+                        <input id="job-email" type="email" inputMode="email" autoCapitalize="off" autoComplete="off" required value={emailDraft}
+                          onChange={(e) => setEmailDraft(e.target.value)} placeholder="name@example.com" />
+                      </label>
+                      <button className="btn secondary" disabled={busy}>Save email</button>
+                    </form>
+                  )}
+                {mailNote && <div className="flash" role="status">{mailNote}</div>}
+              </div>
               {liveAppts.length > 0 && (
                 <div className="list">
                   {liveAppts.map((a: any) => {
@@ -1034,7 +1094,7 @@ function JobPage({ id }: { id: string }) {
                                 title: started ? 'Did the client not show up?' : 'Cancel this appointment?', danger: true,
                                 body: `${shopWhen(a.starts_at)}. It comes off the schedule and the calendar.${back}`,
                                 confirm: started ? 'Mark no-show' : 'Yes, cancel it', keep: 'Keep it',
-                                run: () => run(`/appointments/${a.id}/cancel`, { reason: started ? 'no_show' : 'client_cancelled' }) })}>
+                                run: () => apptRun(`/appointments/${a.id}/cancel`, { reason: started ? 'no_show' : 'client_cancelled' }, 'cancelled') })}>
                                 {started ? 'No-show' : 'Cancel'}
                               </button>
                             </div>
@@ -1043,7 +1103,7 @@ function JobPage({ id }: { id: string }) {
                         {moving === a.id && (
                           <div className="panel-foot appt-move">
                             <SlotForm label="Move it" disabled={busy} initial={a}
-                              onSave={async (b) => { const ok = await run(`/appointments/${a.id}/reschedule`, b); if (ok) setMoving(null); return ok; }} />
+                              onSave={async (b) => { const ok = await apptRun(`/appointments/${a.id}/reschedule`, b, 'moved'); if (ok) setMoving(null); return ok; }} />
                           </div>
                         )}
                       </div>
@@ -1052,7 +1112,7 @@ function JobPage({ id }: { id: string }) {
                 </div>
               )}
               {['new_lead', 'quoted', 'booked'].includes(job.stage) && !liveAppts.some((a: any) => ['scheduled', 'confirmed'].includes(a.status)) && (
-                <div className="panel-foot"><SlotForm label="Book" disabled={busy} onSave={(b) => run(`/jobs/${id}/appointments`, b)} /></div>
+                <div className="panel-foot"><SlotForm label="Book" disabled={busy} onSave={(b) => apptRun(`/jobs/${id}/appointments`, b, 'booked')} /></div>
               )}
               {!['new_lead', 'quoted', 'booked'].includes(job.stage) && liveAppts.length === 0 && (
                 <p className="empty">No appointment on file.</p>

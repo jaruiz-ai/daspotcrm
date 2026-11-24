@@ -515,3 +515,14 @@ input:disabled { background: var(--sunken); color: var(--faint); }
   .fields.trio > label:first-child { grid-column: 1 / -1; }
   .job-actions.no-main .more, .job-actions.no-main .more summary { width: 100%; }
 }
+
+/* ---------- client email ---------- */
+.flash { background: var(--good-soft); color: var(--good); border-radius: var(--radius); padding: 10px 14px; font-size: 0.9375rem; font-weight: 500; margin-bottom: 16px; }
+.appt-email { display: grid; gap: 10px; padding: 12px 20px 0; }
+.appt-email .flash { margin: 0; }
+.appt-email-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.appt-email + .list, .appt-email + .panel-foot { margin-top: 12px; }
+@media (max-width: 720px) {
+  .appt-email { padding: 12px 16px 0; }
+  .appt-email-add { grid-template-columns: minmax(0, 1fr); }
+}

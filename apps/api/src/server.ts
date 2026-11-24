@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { createMemoryDb, createPgDb, migrate } from './db/index.js';
 import { FakeSender, TwilioSender, type MessageSender } from './lib/messaging.js';
+import { ResendSender } from './lib/email.js';
 import { seed } from './db/seed.js';
 
 const env = process.env;
@@ -42,11 +43,14 @@ if (env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN && env.TWILIO_SMS_FROM) {
 const app = createApp({
   db,
   sender,
+  email: env.RESEND_API_KEY ? new ResendSender(env.RESEND_API_KEY, env.EMAIL_FROM ?? 'Da Spot 214 <bookings@daspot214.com>', env.EMAIL_REPLY_TO) : undefined,
   config: {
     staffToken: env.STAFF_API_TOKEN ?? 'dev-token', // dev-token only reachable in demo mode (checked above)
     twilioAuthToken: env.TWILIO_AUTH_TOKEN ?? '',
     publicBaseUrl: env.PUBLIC_BASE_URL ?? '',
       calendarSecret: env.CALENDAR_SECRET,
+      shopPhone: env.SHOP_PHONE,
+      shopAddress: env.SHOP_ADDRESS,
     // apps/api/{src|dist}/server → apps/web/dist
     webDir: env.WEB_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist'),
   },
