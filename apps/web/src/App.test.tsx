@@ -308,4 +308,20 @@ describe('UI end to end', () => {
     expect(job.stage).toBe('booked');
     expect(job.appointments).toHaveLength(1);
   });
+  it('connect calendar: gives Johnathan an iPhone link to the bookings feed', async () => {
+    const user = userEvent.setup();
+    await signIn(user);
+    await user.click(await screen.findByRole('link', { name: /Connect your phone calendar/ }));
+    await user.type(await screen.findByLabelText('Whose calendar is this?'), 'Johnathan');
+    await user.click(screen.getByRole('button', { name: 'Get my calendar link' }));
+    const iphone = await screen.findByRole('link', { name: 'Add to iPhone Calendar' });
+    expect(iphone.getAttribute('href')).toMatch(/^webcal:\/\/.+\/calendar\/johnathan-[0-9a-f]{24}\.ics$/);
+    const google = screen.getByRole('link', { name: 'Add to Google Calendar' });
+    expect(google.getAttribute('href')).toContain('calendar.google.com');
+    const url = screen.getByLabelText('Calendar link').textContent!;
+    const feed = await fetch(new URL(url).pathname);
+    expect(feed.status).toBe(200);
+    expect(await feed.text()).toContain('BEGIN:VCALENDAR');
+    expect(localStorage.getItem('daspot.calendarName')).toBe('Johnathan');
+  });
 });

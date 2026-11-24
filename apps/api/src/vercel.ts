@@ -45,6 +45,7 @@ async function build(): Promise<Express> {
       // Test site: signature checks are off so sample texts can be posted to the webhook by hand.
       twilioAuthToken: demo ? '' : env.TWILIO_AUTH_TOKEN!,
       publicBaseUrl: env.PUBLIC_BASE_URL ?? '',
+      calendarSecret: env.CALENDAR_SECRET,
     },
   });
   if (demo) await loadDemoData(db, app, staffToken);

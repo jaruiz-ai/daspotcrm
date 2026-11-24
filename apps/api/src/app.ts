@@ -13,6 +13,7 @@ import { adminRouter } from './routes/admin.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { importsRouter } from './routes/imports.js';
 import { scheduleRouter } from './routes/schedule.js';
+import { calendarApiRouter, calendarFeedRouter } from './routes/calendar.js';
 
 export interface AppConfig {
   /** Bearer token staff apps send. Required outside tests. */
@@ -21,6 +22,8 @@ export interface AppConfig {
   twilioAuthToken: string;
   /** Public base URL Twilio calls, e.g. https://admin.daspot214.com — needed to verify signatures. */
   publicBaseUrl: string;
+  /** Signs calendar subscription links. Falls back to the staff token when not set. */
+  calendarSecret?: string;
   /** Built web app (apps/web/dist). When set, the API also serves the staff app from the same address. */
   webDir?: string;
 }
@@ -50,6 +53,9 @@ export function createApp(deps: Deps) {
     res.json({ ok: true });
   });
 
+  // Calendar apps fetch this without signing in; the link itself is the key.
+  app.use('/calendar', calendarFeedRouter(deps));
+
   // Webhooks authenticate by signature, not the staff token.
   app.use('/webhooks', express.urlencoded({ extended: false, limit: '256kb' }), webhooksRouter(deps));
 
@@ -60,6 +66,7 @@ export function createApp(deps: Deps) {
   app.use('/api', adminRouter(deps));
   app.use('/api', importsRouter(deps));
   app.use('/api', scheduleRouter(deps));
+  app.use('/api', calendarApiRouter(deps));
 
   const webDir = deps.config.webDir;
   if (webDir && existsSync(path.join(webDir, 'index.html'))) {

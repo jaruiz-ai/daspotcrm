@@ -92,6 +92,7 @@ export default function App() {
   else if (dayMatch) page = <Today day={dayMatch[1]} />;
   else if (bookMatch) page = <AddAppointment day={bookMatch[1]} />;
   else if (route === '/pipeline') page = <Board />;
+  else if (route === '/calendar') page = <ConnectCalendar />;
   else if (route === '/new') page = <QuickLead />;
   else if (route === '/warranty') page = <WarrantyLookup />;
   else if (route === '/import') page = <ImportClients />;
@@ -355,6 +356,10 @@ function Today({ day }: { day?: string }) {
               <div className="col-body">{data.to_collect.map((j: any) => <MiniJob key={j.id} j={j} right={money(j.balance_cents)} />)}</div>
             </section>
           )}
+          <a className="cal-connect" href="#/calendar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></svg>
+            Connect your phone calendar
+          </a>
         </>
       )}
     </div>
@@ -604,6 +609,74 @@ function AddAppointment({ day }: { day?: string }) {
         </div>
       </form>
       <p className="faint small" style={{ marginTop: 12 }}>No time yet? <a href="#/new">Add a lead instead</a>.</p>
+    </div>
+  );
+}
+
+/* ---------- connect calendar ---------- */
+const CAL_NAME_KEY = 'daspot.calendarName';
+
+function ConnectCalendar() {
+  const [name, setName] = useState(() => { try { return localStorage.getItem(CAL_NAME_KEY) ?? ''; } catch { return ''; } });
+  const [link, setLink] = useState<{ name: string; url: string; webcal_url: string; google_url: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const get = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setCopied(false);
+    try {
+      setLink(await api(`/calendar/link?name=${encodeURIComponent(name.trim())}`));
+      try { localStorage.setItem(CAL_NAME_KEY, name.trim()); } catch { /* private mode */ }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy(false);
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link!.url); setCopied(true); } catch { setError('Copy did not work here. Press and hold the link to copy it.'); }
+  };
+
+  return (
+    <div style={{ maxWidth: 620 }}>
+      <div className="page-head">
+        <div>
+          <p className="crumb"><a href="#/">Today</a></p>
+          <h1>Connect calendar</h1>
+          <p className="muted">Every appointment booked in the CRM shows up on your phone's calendar on its own, with an alert the day before and 1 hour before. Time changes and cancellations update too.</p>
+        </div>
+      </div>
+      <form className="panel" onSubmit={get}>
+        <div className="panel-body form">
+          <label>Whose calendar is this?
+            <input id="cal-name" value={name} onChange={(e) => { setName(e.target.value); setLink(null); }} autoCapitalize="words" autoComplete="off" required maxLength={40} placeholder="Johnathan" />
+          </label>
+          {!link && <button className="btn" disabled={busy || !name.trim()}>{busy ? 'Getting the link…' : 'Get my calendar link'}</button>}
+          {error && <div className="error" role="alert">{error}</div>}
+          {link && (
+            <div className="cal-links">
+              <a className="btn" href={link.webcal_url}>Add to iPhone Calendar</a>
+              <a className="btn secondary" href={link.google_url} target="_blank" rel="noreferrer">Add to Google Calendar</a>
+              <div className="cal-url">
+                <code aria-label="Calendar link">{link.url}</code>
+                <button type="button" className="btn secondary sm" onClick={copy}>{copied ? 'Copied' : 'Copy link'}</button>
+              </div>
+            </div>
+          )}
+        </div>
+        {link && (
+          <div className="panel-foot">
+            <ol className="steps small">
+              <li><strong>iPhone:</strong> tap Add to iPhone Calendar, then <strong>Subscribe</strong>, then <strong>Add</strong>. New bookings usually appear within 15 minutes.</li>
+              <li><strong>Google Calendar:</strong> open the link while signed in to Google and confirm. Google checks for changes less often, every few hours.</li>
+              <li>Keep this link private: anyone who has it can see the schedule.</li>
+            </ol>
+          </div>
+        )}
+      </form>
     </div>
   );
 }
