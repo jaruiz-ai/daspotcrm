@@ -28,6 +28,8 @@ export interface AppConfig {
   /** Shop phone and address, printed in client emails. Left out when not set. */
   shopPhone?: string;
   shopAddress?: string;
+  /** Logo shown at the top of client emails (a public https URL). */
+  logoUrl?: string;
   /** Built web app (apps/web/dist). When set, the API also serves the staff app from the same address. */
   webDir?: string;
 }

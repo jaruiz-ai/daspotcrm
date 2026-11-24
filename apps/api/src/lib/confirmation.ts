@@ -28,7 +28,7 @@ export interface ConfirmationData {
   services: string[];
   jobNumber: number;
   appointmentId: string;
-  shop: { phone?: string; address?: string };
+  shop: { phone?: string; address?: string; logoUrl?: string };
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -78,7 +78,9 @@ export function buildConfirmation(c: ConfirmationData) {
   const html = `<!doctype html><html><body style="margin:0;background:#f3f6f7;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#182024">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6f7;padding:24px 12px"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border:1px solid #e1e8ea;border-radius:12px">
-<tr><td style="padding:24px 24px 8px;font-size:22px;font-weight:700">Da Spot 214</td></tr>
+<tr><td style="padding:24px 24px 8px;font-size:22px;font-weight:700">${c.shop.logoUrl
+  ? `<img src="${esc(c.shop.logoUrl)}" width="120" height="113" alt="Da Spot 214 Window Tint &amp; Wraps" style="display:block;border:0;width:120px;height:auto">`
+  : 'Da Spot 214'}</td></tr>
 <tr><td style="padding:8px 24px 0;font-size:16px;line-height:1.5">${esc(hi)}<br>${esc(lead)}</td></tr>
 <tr><td style="padding:16px 24px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed;background:${c.kind === 'cancelled' ? '#fbeceb' : '#e3f0f5'};border-radius:8px">
 <colgroup><col style="width:84px"><col></colgroup>
@@ -118,7 +120,7 @@ export type EmailOutcome =
  * undoes the booking; it leaves a task so the desk can reach the client another way.
  */
 export async function sendAppointmentEmail(
-  deps: { db: Queryable; email: EmailSender; shop: { phone?: string; address?: string } },
+  deps: { db: Queryable; email: EmailSender; shop: { phone?: string; address?: string; logoUrl?: string } },
   appointmentId: string, kind: ConfirmationKind,
 ): Promise<EmailOutcome> {
   const { db, email } = deps;

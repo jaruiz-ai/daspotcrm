@@ -107,7 +107,7 @@ export default function App() {
   return (
     <>
       <header className="topbar">
-        <a className="brand" href="#/">Da Spot 214<span>CRM</span></a>
+        <a className="brand" href="#/"><img className="brand-logo" src="/logo-96.png" alt="" width="36" height="36" />Da Spot 214<span>CRM</span></a>
         <nav className="nav" aria-label="Main">
           {nav.map(([href, label]) => <a key={href} href={href} aria-current={active(href) ? 'page' : undefined}>{label}</a>)}
         </nav>
@@ -156,9 +156,10 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="login panel">
       <form className="form" onSubmit={submit}>
-        <div>
-          <h1>Da Spot 214</h1>
-          <p className="muted" style={{ margin: 0 }}>Sign in to the shop CRM.</p>
+        <div className="login-head">
+          <img className="login-logo" src="/logo-320.png" alt="Da Spot 214 Window Tint & Wraps" width="160" height="150" />
+          <h1>Shop CRM</h1>
+          <p className="muted" style={{ margin: 0 }}>Sign in with the shop access code.</p>
         </div>
         <label>Shop access code
           <input id="access-code" type="password" value={token} onChange={(e) => setT(e.target.value)} autoFocus required />

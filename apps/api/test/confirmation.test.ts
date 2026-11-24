@@ -109,5 +109,10 @@ describe('confirmation emails', () => {
       endsAt: new Date(dallas('2031-01-14', 10)), vehicle: '', services: [], jobNumber: 1, appointmentId: 'x', shop: {} });
     expect(m.html).toContain('&lt;b&gt;Al&lt;/b&gt;');
     expect(m.text).toContain('Just reply to this email');
+    expect(m.html).not.toContain('<img');
+    const withLogo = buildConfirmation({ kind: 'booked', lang: 'en', firstName: 'Al', startsAt: new Date(dallas('2031-01-14', 9)),
+      endsAt: new Date(dallas('2031-01-14', 10)), vehicle: '', services: [], jobNumber: 1, appointmentId: 'x',
+      shop: { logoUrl: 'https://crm.example/logo-email.png' } });
+    expect(withLogo.html).toContain('<img src="https://crm.example/logo-email.png"');
   });
 });

@@ -5,5 +5,5 @@ import { sendAppointmentEmail, type ConfirmationKind } from '../lib/confirmation
 export const appointmentMailer = ({ db, email, config }: Deps) =>
   (appointmentId: string, kind: ConfirmationKind, notify = true) =>
     notify
-      ? sendAppointmentEmail({ db, email: email!, shop: { phone: config.shopPhone, address: config.shopAddress } }, appointmentId, kind)
+      ? sendAppointmentEmail({ db, email: email!, shop: { phone: config.shopPhone, address: config.shopAddress, logoUrl: config.publicBaseUrl ? `${config.publicBaseUrl.replace(/\/$/, '')}/logo-email.png` : config.logoUrl } }, appointmentId, kind)
       : Promise.resolve({ status: 'skipped' as const });

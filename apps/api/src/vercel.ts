@@ -50,6 +50,8 @@ async function build(): Promise<Express> {
       calendarSecret: env.CALENDAR_SECRET,
       shopPhone: env.SHOP_PHONE,
       shopAddress: env.SHOP_ADDRESS,
+      // Vercel tells each deploy its main address; the email logo is served from there.
+      logoUrl: env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}/logo-email.png` : undefined,
     },
   });
   if (demo) await loadDemoData(db, app, staffToken);
