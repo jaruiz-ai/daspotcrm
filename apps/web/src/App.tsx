@@ -614,7 +614,7 @@ function AddAppointment({ day }: { day?: string }) {
             </fieldset>
           )}
 
-          {!bookingExisting && (
+          {!bookingExisting && (mode === 'new' || client) && (
             <fieldset>
               <legend>Vehicle</legend>
               {client && client.vehicles?.length > 0 && (
@@ -632,7 +632,7 @@ function AddAppointment({ day }: { day?: string }) {
                 </div>
               )}
               {needsVehicleFields && (
-                <div className="fields">
+                <div className="fields trio">
                   <label>Year<input id="appt-year" value={f.year} onChange={set('year')} inputMode="numeric" pattern="(19|20)\d{2}" placeholder="2024" /></label>
                   <label>Make<input id="appt-make" value={f.make} onChange={set('make')} placeholder="Toyota" autoCapitalize="words" autoComplete="off" /></label>
                   <label>Model<input id="appt-model" value={f.model} onChange={set('model')} placeholder="Camry" autoCapitalize="words" autoComplete="off" /></label>
@@ -641,7 +641,7 @@ function AddAppointment({ day }: { day?: string }) {
             </fieldset>
           )}
 
-          {!bookingExisting && (
+          {!bookingExisting && (mode === 'new' || client) && (
             <fieldset>
               <legend>Service</legend>
               <div className="fields">
@@ -658,7 +658,7 @@ function AddAppointment({ day }: { day?: string }) {
 
           <fieldset>
             <legend>When</legend>
-            <div className="fields">
+            <div className="fields trio">
               <label>Date<input id="appt-date" type="date" value={f.date} onChange={set('date')} required /></label>
               <label>Start
                 <select id="appt-start" value={f.time} onChange={set('time')}>{START_TIMES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
@@ -676,7 +676,7 @@ function AddAppointment({ day }: { day?: string }) {
           <button className="btn" disabled={busy}>{busy ? 'Booking…' : 'Book appointment'}</button>
         </div>
       </form>
-      <p className="faint small" style={{ marginTop: 12 }}>No time yet? <a href="#/new">Add a lead instead</a>.</p>
+      <p className="faint small" style={{ marginTop: 12 }}>No time yet? <a className="tap-link" href="#/new">Add a lead instead</a>.</p>
     </div>
   );
 }
@@ -797,7 +797,7 @@ function QuickLead() {
           </fieldset>
           <fieldset>
             <legend>Vehicle</legend>
-            <div className="fields">
+            <div className="fields trio">
               <label>Year<input id="lead-year" value={f.year} onChange={set('year')} inputMode="numeric" pattern="(19|20)\d{2}" placeholder="2024" /></label>
               <label>Make<input id="lead-make" value={f.make} onChange={set('make')} placeholder="Toyota" autoCapitalize="words" autoComplete="off" /></label>
               <label>Model<input id="lead-model" value={f.model} onChange={set('model')} placeholder="Camry" autoCapitalize="words" autoComplete="off" /></label>
@@ -920,15 +920,18 @@ function JobPage({ id }: { id: string }) {
             </div>
             <div className="sub">
               <span>{vehicle || 'Vehicle not added'}</span>
-              <span className="desk-only">{formatPhone(job.mobile)}</span>
+              <span>{formatPhone(job.mobile)}</span>
               {job.language === 'es' && <span>Español</span>}
               {src && <span>From {src}</span>}
               {job.is_warranty_redo && <span>Warranty re-do, no charge</span>}
             </div>
             <div className="contact-buttons">
-              <a className="btn secondary sm" href={`tel:${job.mobile}`}>Call</a>
-              <a className="btn secondary sm" href={`sms:${job.mobile}`}>Text</a>
-              <span className="faint small phone-only">{formatPhone(job.mobile)}</span>
+              <a className="btn secondary sm" href={`tel:${job.mobile}`} aria-label={`Call ${formatPhone(job.mobile)}`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2" /></svg>Call
+              </a>
+              <a className="btn secondary sm" href={`sms:${job.mobile}`} aria-label={`Text ${formatPhone(job.mobile)}`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>Text
+              </a>
             </div>
           </div>
           <div className={`actions job-actions${primary ? "" : " no-main"}`}>
@@ -1210,7 +1213,7 @@ function SlotForm({ onSave, disabled, label, initial }: {
   };
   const k = initial ? 'move' : 'appt';
   return (
-    <form className="fields" onSubmit={submit}>
+    <form className="fields trio" onSubmit={submit}>
       <label>Date<input id={`${k}-date`} type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} required /></label>
       <label>Start<select id={`${k}-time`} value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })}>{times.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
       <label>Hours

@@ -191,8 +191,8 @@ describe('UI end to end', () => {
       body: JSON.stringify({ contact: { first_name: 'Dana', mobile: '2145550190' } }) })).json();
     location.hash = `#/jobs/${lead.job.id}`;
     await signIn(user);
-    expect((await screen.findByRole('link', { name: 'Call' })).getAttribute('href')).toBe('tel:+12145550190');
-    expect(screen.getByRole('link', { name: 'Text' }).getAttribute('href')).toBe('sms:+12145550190');
+    expect((await screen.findByRole('link', { name: 'Call (214) 555-0190' })).getAttribute('href')).toBe('tel:+12145550190');
+    expect(screen.getByRole('link', { name: 'Text (214) 555-0190' }).getAttribute('href')).toBe('sms:+12145550190');
   });
 
   it('imports past clients and shows each warranty date before saving', async () => {

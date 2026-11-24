@@ -36,7 +36,9 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; overflow-x: hidden; overflow-x: clip; overscroll-behavior: none; }
+/* Nothing may push the page sideways: on iPhone that makes the whole screen slide while scrolling. */
+body { overflow-x: clip; max-width: 100%; }
 body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 /* No double-tap zoom delay, no text-selection popups or link previews when pressing buttons. */
@@ -159,6 +161,8 @@ legend { font-weight: 600; font-size: 0.9375rem; margin-bottom: 12px; padding: 0
 /* ---------- job detail ---------- */
 .job-head { display: grid; gap: 16px; margin-bottom: 24px; }
 .crumb { font-size: 0.875rem; color: var(--muted); }
+/* Small text links still get a full-size tap area without changing the layout. */
+.crumb a, .tap-link { display: inline-flex; align-items: center; min-height: 44px; margin-block: -12px; }
 .job-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .job-title .sub { display: flex; gap: 6px 16px; flex-wrap: wrap; color: var(--muted); margin-top: 6px; }
 .stepper { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
@@ -491,4 +495,23 @@ input:disabled { background: var(--sunken); color: var(--faint); }
     padding: 20px calc(16px + var(--sar)) calc(16px + var(--sab)) calc(16px + var(--sal));
   }
   .sheet-actions .btn { height: 52px; }
+}
+
+/* ---------- phone polish ---------- */
+.job-actions:empty { display: none; }
+.contact-buttons .btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pay-more summary { display: flex; align-items: center; min-height: 44px; }
+.week-head { min-height: 44px; align-items: center; }
+@media (max-width: 720px) {
+  .btn.phone-only { display: inline-flex; }
+  .page-head { display: grid; gap: 12px; justify-content: stretch; }
+  .page-head > .btn { width: 100%; }
+  .contact-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .contact-buttons .btn { max-width: none; width: 100%; }
+  .panel.actions > .btn, .file-pick .btn { width: 100%; }
+  .file-pick { display: grid; }
+  .job-title .sub { gap: 4px 12px; }
+  /* Three fields on a two-column phone grid: the first gets its own row, so nothing sits half-empty. */
+  .fields.trio > label:first-child { grid-column: 1 / -1; }
+  .job-actions.no-main .more, .job-actions.no-main .more summary { width: 100%; }
 }
